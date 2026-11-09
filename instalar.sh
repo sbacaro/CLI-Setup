@@ -948,9 +948,8 @@ while :; do
   tela_modelos || continue
   
   # Etapa 4: Desktop completo (só se Claude Desktop está selecionado)
-  local desktop_ativo=0
-  local i
-  for ((i=0;i<4;i++)); do
+  desktop_ativo=0
+  for i in 0 1 2 3; do
     if [ "$i" -eq 1 ] && [ "${SEL[$i]}" -eq 1 ]; then desktop_ativo=1; fi
   done
   if [ "$desktop_ativo" -eq 1 ]; then
