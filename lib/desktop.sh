@@ -4,58 +4,49 @@
 #
 # O problema: ao apontar o app para um gateway, ele sai do modo Anthropic e perde
 # conectores, skills e plugins. Tudo que ele recebia do Console da Anthropic deixa
-# de existir. A config abaixo devolve essas três camadas por caminhos que FUNCIONAM
-# sem infraestrutura da Anthropic, sem inventar nenhum host:
+# de existir. A config abaixo devolve essas camadas por caminhos que FUNCIONAM sem
+# infraestrutura da Anthropic, sem inventar nenhum host:
 #
 #   1. Conectores embutidos no app (server: websearch | github). Rodam como processo
 #      local na máquina do usuário. Nada passa por host da Anthropic.
-#   2. Skills oficiais pelo marketplace público anthropics/skills (Apache 2.0) —
-#      o mesmo repositório que alimenta o Claude real: docx, pdf, pptx, xlsx.
+#   2. Skills e plugins pelos marketplaces oficiais da Anthropic no GitHub,
+#      Apache 2.0 — os mesmos repositórios que alimentam o Claude real.
 #   3. Plugins de organização pelo diretório /Library/Application Support/Claude/org-plugins/.
 #
 # Cada valor foi conferido na documentação oficial
 # (claude.com/docs/third-party/claude-desktop) ou é um repositório público real.
 
-# ── Versão mais recente das skills ──────────────────────────────────────────
-# A doc exige ref de 40 caracteres (commit SHA) quando installationPreference é
-# auto_install/required. Branch e tag são recusados. Então resolvemos o SHA do
-# HEAD em tempo de execução — nunca um valor fixo que envelhece.
-# Guardamos em cache no diretório de config para não bater na API toda vez.
+# ── Marketplaces oficiais da Anthropic ──────────────────────────────────────
+# Ambos são repositórios públicos, sem autenticação, com .claude-plugin/marketplace.json.
+# "ref" vazio rastreia o branch padrão: sempre a versão mais recente, sem valor
+# fixo que envelhece. A doc exige SHA de 40 caracteres apenas quando
+# installationPreference é auto_install/required — aqui é "available", então
+# branch é aceito e preferível.
 SKILLS_REPO="${KODEO_SKILLS_REPO:-anthropics/skills}"
-SKILLS_REF_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/cli-setup/skills-ref"
-SKILLS_REF_TTL=3600   # 1 hora
+SKILLS_NAME="anthropic-agent-skills"
+CODE_REPO="${KODEO_CODE_PLUGINS_REPO:-anthropics/claude-code}"
+CODE_NAME="claude-code-plugins"
 
-skills_ref() {
-  local ref="${KODEO_SKILLS_REF:-}"
-  if [ -n "$ref" ]; then printf '%s' "$ref"; return 0; fi
-
-  # cache ainda válido?
-  if [ -f "$SKILLS_REF_CACHE" ]; then
-    local age
-    age=$(( $(date +%s) - $(stat -f %m "$SKILLS_REF_CACHE" 2>/dev/null || stat -c %Y "$SKILLS_REF_CACHE" 2>/dev/null || echo 0) ))
-    if [ "$age" -ge 0 ] && [ "$age" -lt "$SKILLS_REF_TTL" ]; then
-      cat "$SKILLS_REF_CACHE"; return 0
-    fi
+# desktop_marketplaces_json → array JSON dos marketplaces permitidos.
+# INCLUIR_SKILLS (1|0), INCLUIR_CODE (1|0)
+desktop_marketplaces_json() {
+  local sk="${1:-1}" cc="${2:-1}" out="" sep=""
+  if [ "$sk" = "1" ]; then
+    out="$out$sep{\"source\":\"github\",\"repo\":\"$SKILLS_REPO\",\"expectedName\":\"$SKILLS_NAME\",\"credentialKind\":\"anonymous\",\"installationPreference\":\"available\"}"
+    sep=","
   fi
-
-  # sem KODEO_SKILLS_REF e sem cache: pergunta ao GitHub qual é o HEAD
-  local sha
-  sha=$(curl -s -m 15 -H 'accept: application/vnd.github+json' \
-        "https://api.github.com/repos/$SKILLS_REPO/commits/main" 2>/dev/null \
-        | sed -n 's/.*"sha": *"\([0-9a-f]\{40\}\)".*/\1/p' | head -1)
-  case "$sha" in
-    [0-9a-f]*) ;;
-    *) echo "não consegui resolver a versão atual de $SKILLS_REPO" >&2; return 1 ;;
-  esac
-  mkdir -p "$(dirname "$SKILLS_REF_CACHE")" 2>/dev/null
-  printf '%s' "$sha" >"$SKILLS_REF_CACHE" 2>/dev/null
-  printf '%s' "$sha"
+  if [ "$cc" = "1" ]; then
+    out="$out$sep{\"source\":\"github\",\"repo\":\"$CODE_REPO\",\"expectedName\":\"$CODE_NAME\",\"credentialKind\":\"anonymous\",\"installationPreference\":\"available\"}"
+    sep=","
+  fi
+  printf '[%s]' "$out"
 }
 
 # ── Egress allowlist ────────────────────────────────────────────────────────
 # Hosts que a sandbox do Cowork pode alcançar. Sem isso, Web Fetch e o shell
-# dentro da sandbox não saem. Lista conservadora: só o necessário para instalar
-# dependências e ler repositórios.
+# dentro da sandbox não saem. Inclui os hosts do marketplace (github) e os
+# provedores de busca (o conector websearch roda fora da sandbox, mas o Web
+# Fetch dos resultados precisa passar).
 desktop_egress_hosts() { # minimo|padrao|completo
   case "${1:-padrao}" in
     minimo)
@@ -66,12 +57,14 @@ desktop_egress_hosts() { # minimo|padrao|completo
         gitlab.com bitbucket.org \
         pypi.org files.pythonhosted.org \
         registry.npmjs.org npmjs.org \
-        deb.debian.org archive.ubuntu.com security.ubuntu.com ;;
+        deb.debian.org archive.ubuntu.com security.ubuntu.com \
+        api.search.brave.com api.tavily.com api.exa.ai ;;
     *)
       printf '%s\n' github.com api.github.com raw.githubusercontent.com \
         objects.githubusercontent.com \
         pypi.org files.pythonhosted.org \
-        registry.npmjs.org npmjs.org ;;
+        registry.npmjs.org npmjs.org \
+        api.search.brave.com api.tavily.com api.exa.ai ;;
   esac
 }
 
@@ -88,7 +81,7 @@ desktop_egress_json() { # minimo|padrao|completo
 # ── Conectores embutidos no app ─────────────────────────────────────────────
 # Cada entrada usa "server" — nunca url/transport/command junto. A doc diz que
 # uma entrada que mistura "server" com campo remoto é rejeitada.
-# Só entra o conector que tem credencial: sem chave, ele não conecta e o app
+# Só entra o conector que tem credencial: sem chave ele não conecta e o app
 # mostra erro de configuração em vez de funcionar.
 desktop_mcp_builtin() { # BUSCA_PROVEDOR BUSCA_CHAVE GITHUB_CLIENT_ID → array JSON
   local prov="${1:-}" chave="${2:-}" gitid="${3:-}" out="" sep=""
@@ -98,24 +91,12 @@ desktop_mcp_builtin() { # BUSCA_PROVEDOR BUSCA_CHAVE GITHUB_CLIENT_ID → array 
     sep=","
   fi
   if [ -n "$gitid" ]; then
-    out="$out$sep{\"name\":\"GitHub\",\"server\":\"github\",\"clientId\":\"$gitid\",\"toolPolicy\":{\"merge_pull_request\":\"ask\",\"delete_repository\":\"blocked\"}}"
+    # readOnly não se combina com toolPolicy de escrita; as travas abaixo são
+    # as ações irreversíveis de maior risco.
+    out="$out$sep{\"name\":\"GitHub\",\"server\":\"github\",\"clientId\":\"$gitid\",\"toolPolicy\":{\"merge_pull_request\":\"ask\",\"delete_repository\":\"blocked\",\"force_push\":\"blocked\"}}"
     sep=","
   fi
   printf '[%s]' "$out"
-}
-
-# ── Marketplaces de plugins ─────────────────────────────────────────────────
-# O único público e oficial é anthropics/skills. "available" = aparece em
-# Customize → Plugins → Organization para o usuário instalar. Não auto-instala,
-# para não impor conteúdo sem o usuário pedir.
-desktop_marketplaces_json() { # INCLUIR(1|0)
-  if [ "${1:-1}" = "1" ]; then
-    local ref; ref=$(skills_ref) || return 1
-    printf '[{"source":"github","repo":"%s","ref":"%s","expectedName":"anthropic-agent-skills","credentialKind":"anonymous","installationPreference":"available"}]' \
-      "$SKILLS_REPO" "$ref"
-  else
-    printf '[]'
-  fi
 }
 
 # ── Diretório de plugins de organização ─────────────────────────────────────

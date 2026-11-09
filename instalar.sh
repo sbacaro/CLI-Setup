@@ -535,11 +535,13 @@ tela_desktop() { # 0 = seguir, 1 = voltar
 
   local k
   # ── 1. Skills ─────────────────────────────────────────────────────────────
-  linha "${B}${W}Skills oficiais da Anthropic${R}"
-  linha "${G}Marketplace público anthropics/skills (Apache 2.0): docx, pdf, pptx, xlsx${R}"
-  linha "${G}e mais. É o mesmo repositório que alimenta o Claude real.${R}"
+  linha "${B}${W}Skills e plugins oficiais da Anthropic${R}"
+  linha "${G}Dois marketplaces públicos no GitHub, Apache 2.0 — os mesmos que${R}"
+  linha "${G}alimentam o Claude real. Aparecem em Customize → Plugins → Organization.${R}"
   linha ""
-  linha "  ${OK}✓${R} incluído — versão mais recente resolvida na hora da instalação"
+  linha "  ${OK}✓${R} ${W}anthropics/skills${R}       ${G}docx, pdf, pptx, xlsx, skill-creator…${R}"
+  linha "  ${OK}✓${R} ${W}anthropics/claude-code${R}  ${G}code-review, commit-commands, hookify…${R}"
+  linha "  ${G}Versão mais recente: o marketplace segue o branch padrão.${R}"
   linha ""
 
   # ── 2. Busca na web ───────────────────────────────────────────────────────
@@ -746,7 +748,7 @@ cd_config_json() { claude_desktop_json "$BASE" "$CHAVE"; }
 cd_config_json_completo() {
   local mcp mk eg
   mcp=$(desktop_mcp_builtin "$BUSCA_PROVEDOR" "$BUSCA_CHAVE" "$GITHUB_CLIENT_ID") || mcp="[]"
-  mk=$(desktop_marketplaces_json 1) || mk="[]"
+  mk=$(desktop_marketplaces_json 1 1) || mk="[]"
   eg=$(desktop_egress_json "$EGRESS_MODE") || eg="[]"
   printf '%s' "$CATALOGO_JSON" | CAT_BASE="$BASE" CAT_CHAVE="$CHAVE" CAT_OPUS="$PADRAO_ID" \
     CAT_MCP_BUILTIN="$mcp" CAT_MARKETPLACES="$mk" CAT_EGRESS="$eg" \
