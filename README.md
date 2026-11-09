@@ -1,8 +1,8 @@
 # CLI Setup
 
-Configurador de terminal que liga Claude Code, Claude Desktop, OpenCode e
-Codex/ChatGPT Desktop ao gateway, **lendo os modelos do seu plano em vez de usar
-uma lista fixa**.
+Configurador de terminal que liga Claude Code, Claude Desktop, OpenCode, Codex
+(CLI) e ChatGPT Desktop ao gateway, **lendo os modelos do seu plano em vez de
+usar uma lista fixa**.
 
 ## O comando
 
@@ -29,11 +29,17 @@ Cada app fala o protocolo da sua família, no endereço que ele espera:
 |---|---|---|---|
 | **Claude Code** | `https://api.kodeo.com.br` | Anthropic Messages | só Anthropic do plano |
 | **Claude Desktop** | `https://api.kodeo.com.br` | Anthropic Messages | só Anthropic do plano |
-| **ChatGPT / Codex** | `https://api.kodeo.com.br/v1` | Responses | só OpenAI do plano |
+| **Codex** (CLI) | `https://api.kodeo.com.br/v1` | Responses | só OpenAI do plano |
+| **ChatGPT Desktop** | `https://api.kodeo.com.br/v1` | Responses | só OpenAI do plano |
 | **OpenCode** | `https://api.kodeo.com.br/v1` | OpenAI-compatible | todos do plano |
 
 A URL sem `/v1` nos apps Anthropic é intencional: o SDK deles acrescenta
 `/v1/messages`. Verificado na API — `/v1/messages` responde 200, `/messages` 404.
+
+**Codex e ChatGPT Desktop são serviços separados na tela, mas compartilham o
+mesmo `~/.codex/config.toml`.** A detecção de instalação é independente — o CLI
+aparece em `command -v codex`, o app só como `/Applications/ChatGPT.app` — e
+marcar os dois configura uma vez só, porque o alvo é o arquivo.
 
 ## Por que o catálogo vem do `/v1/me`
 

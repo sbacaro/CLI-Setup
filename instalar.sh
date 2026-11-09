@@ -332,9 +332,9 @@ tela_chave_do_comando() {
 }
 
 # ══ 2/4  FERRAMENTAS ══════════════════════════════════════════════════════
-NOMES=("Claude Code" "Claude Desktop" "OpenCode" "Codex + ChatGPT")
-IDS=("claude-code" "claude-app" "opencode" "codex")
-CONF=(0 0 0 0); SEL=(0 0 0 0); INST=(0 0 0 0)
+NOMES=("Claude Code" "Claude Desktop" "OpenCode" "Codex" "ChatGPT Desktop")
+IDS=("claude-code" "claude-app" "opencode" "codex" "chatgpt")
+CONF=(0 0 0 0 0); SEL=(0 0 0 0 0); INST=(0 0 0 0 0)
 
 pasta_3p() {
   local d=""
@@ -346,6 +346,20 @@ pasta_3p() {
   else printf '%s/.config/Claude-3p' "$HOME"; fi
 }
 CX_DIR="${CODEX_HOME:-$HOME/.codex}"; CX_CFG="$CX_DIR/config.toml"
+
+# Onde o app do ChatGPT fica instalado. A busca é só por diretório, porque
+# `command -v` não acha um .app — era isso que fazia o app instalado aparecer
+# como "não encontrado".
+chatgpt_app() {
+  local a
+  for a in "/Applications/ChatGPT.app" \
+           "$HOME/Applications/ChatGPT.app" \
+           "/Applications/Codex.app" \
+           "$HOME/Applications/Codex.app"; do
+    [ -d "$a" ] && { printf '%s' "$a"; return 0; }
+  done
+  return 1
+}
 
 detectar() {
   # Claude Code: verifica settings.json PRIMEIRO (fonte principal)
@@ -378,13 +392,20 @@ detectar() {
   grep -qs '"kodeo"' "$HOME/.config/opencode/opencode.json" 2>/dev/null && CONF[2]=1
   command -v opencode >/dev/null 2>&1 && INST[2]=1
   
-  # Codex / ChatGPT
+  # Codex (CLI): confere o provider no config.toml; a instalação é o binário.
   grep -qs "model_providers.kodeo" "$CX_CFG" 2>/dev/null && CONF[3]=1
   command -v codex >/dev/null 2>&1 && INST[3]=1
-  
+
+  # ChatGPT Desktop: o mesmo config.toml é lido pelo app, então o estado de
+  # configuração é o mesmo. O que muda é a detecção de instalação: um .app não
+  # aparece em `command -v`, tem que olhar o diretório.
+  [ "${CONF[3]}" -eq 1 ] && CONF[4]=1
+  chatgpt_app >/dev/null 2>&1 && INST[4]=1
+
   # Se nada está configurado, marca todos para seleção
-  local algum=0; for i in 0 1 2 3; do [ "${CONF[$i]}" -eq 1 ] && algum=1; done
-  [ "$algum" -eq 0 ] && for i in 0 1 2 3; do SEL[$i]=1; done
+  local algum=0 i
+  for i in 0 1 2 3 4; do [ "${CONF[$i]}" -eq 1 ] && algum=1; done
+  [ "$algum" -eq 0 ] && for i in 0 1 2 3 4; do SEL[$i]=1; done
 }
 
 tela_ferramentas() { # 0 = aplicar, 1 = voltar
@@ -392,7 +413,8 @@ tela_ferramentas() { # 0 = aplicar, 1 = voltar
   linha "${B}${W}Passo 2 de $TOTAL — o que configurar.${R}"
   linha ""
   linha "O que já está configurado pode ser desconfigurado."
-  linha "${G}Codex e ChatGPT Desktop usam o mesmo arquivo: marcar um configura os dois.${R}"
+  linha "${G}Codex (CLI) e ChatGPT Desktop leem o mesmo config.toml: marcar um${R}"
+  linha "${G}aplica nos dois. A detecção de instalação é separada.${R}"
   linha ""
   local n=${#NOMES[@]} i cur=0 k
   # largura das colunas a partir do maior nome, para nada se sobrepor
@@ -525,8 +547,8 @@ tela_desktop() { # 0 = seguir, 1 = voltar
   linha ""
 
   # Só faz sentido se o Claude Desktop foi marcado.
-  local ativo=0 i
-  for i in 0 1 2 3; do [ "$i" -eq 1 ] && [ "${SEL[$i]}" -eq 1 ] && ativo=1; done
+  local ativo=0
+  [ "${SEL[1]}" -eq 1 ] && ativo=1
   if [ "$ativo" -eq 0 ]; then
     linha "${G}Claude Desktop não está marcado — pulando.${R}"
     linha ""
@@ -839,16 +861,18 @@ cd_config_json() { claude_desktop_json "$BASE" "$CHAVE"; }
 # conectores embutidos, MCP local, marketplaces oficiais e egress.
 cd_config_json_completo() {
   local mk eg ml
+  # Cada variável vem da tela 4. Com fallback porque a função também roda em
+  # teste e em qualquer caminho onde a tela não passou (set -u quebraria).
   mk=$(desktop_marketplaces_json 1 1) || mk="[]"
-  eg=$(desktop_egress_json "$EGRESS_MODE") || eg="[]"
-  ml=$(desktop_mcp_local "$MCP_DIRS" 2>/dev/null) || ml="[]"
-  REMOTO_JSON=$(desktop_mcp_remoto "$MCP_REMOTOS") || REMOTO_JSON="[]"
+  eg=$(desktop_egress_json "${EGRESS_MODE:-padrao}") || eg="[]"
+  ml=$(desktop_mcp_local "${MCP_DIRS:-}" 2>/dev/null) || ml="[]"
+  REMOTO_JSON=$(desktop_mcp_remoto "${MCP_REMOTOS:-}") || REMOTO_JSON="[]"
   export REMOTO_JSON
   printf '%s' "$CATALOGO_JSON" | \
     CAT_BASE="$BASE" CAT_CHAVE="$CHAVE" CAT_OPUS="$PADRAO_ID" \
     CAT_MARKETPLACES="$mk" CAT_EGRESS="$eg" CAT_MCP_LOCAL="$ml" \
-    CAT_BUSCA_PROVEDOR="$BUSCA_PROVEDOR" CAT_BUSCA_CHAVE="$BUSCA_CHAVE" \
-    CAT_GITHUB_CLIENT_ID="$GITHUB_CLIENT_ID" CAT_MCP_REMOTO="$REMOTO_JSON" \
+    CAT_BUSCA_PROVEDOR="${BUSCA_PROVEDOR:-}" CAT_BUSCA_CHAVE="${BUSCA_CHAVE:-}" \
+    CAT_GITHUB_CLIENT_ID="${GITHUB_CLIENT_ID:-}" CAT_MCP_REMOTO="$REMOTO_JSON" \
     catalogo_gerar_claude
 }
 cd_escrever() {
@@ -967,30 +991,58 @@ remover_opencode_arq() { # ARQUIVO MODELO_ANTERIOR
 
 # ── Codex / ChatGPT Desktop ────────────────────────────────────────────────
 CX_CATALOGO="$CX_DIR/cli-setup-models.json"; CX_BK="$HOME/.config/cli-setup/codex-config.toml.anterior"
+# passo() roda cada comando em subshell, então o modelo escolhido num passo não
+# pode viajar em variável até o passo seguinte. Vai por arquivo.
+CX_MODELO_ARQ="$CX_DIR/.cli-setup-modelo"
+# O Codex/ChatGPT só aceita modelos OpenAI. Usar o PADRAO_ID global (que é
+# Anthropic) gravava model = "claude-opus-5.5" num catálogo que só tem GPT:
+# o app abria sem modelo válido. Aqui escolhemos o melhor OpenAI do plano.
+cx_padrao() {
+  local plano="${CAT_PLANO_IDS:-}" id melhor=""
+  if [ -n "$plano" ]; then
+    # do plano, o OpenAI de maior versão
+    melhor=$(printf '%s\n' "$plano" | grep -E '^(gpt|codex|o[0-9])' | sort -V | tail -1)
+  fi
+  if [ -z "$melhor" ]; then
+    # sem plano: o primeiro OpenAI do catálogo (cat_ids sai "id<TAB>nome")
+    melhor=$(cat_ids | cut -f1 | grep -E '^(gpt|codex|o[0-9])' | head -1)
+  fi
+  printf '%s' "$melhor"
+}
+
 cx_baixar_catalogo() {
   mkdir -p "$CX_DIR" || return 1
   local tmp="$CX_CATALOGO.cli-tmp" raw="$CX_DIR/.codex-raw.cli-tmp"
   curl -s -m 30 -A "cli-setup/$VERSAO" "$BASE/v1/codex/modelos" -H "Authorization: Bearer $CHAVE" -o "$raw" 2>/dev/null
   grep -qs '"models"' "$raw" || { rm -f "$raw"; echo "não consegui baixar o catálogo do Codex"; return 1; }
   CATALOGO_CODEX=$(cat "$raw"); rm -f "$raw"
-  export CATALOGO_CODEX CAT_PADRAO="$PADRAO_ID" JSON_TOOL
-  catalogo_codex_json "$PADRAO_ID" >"$tmp" || { rm -f "$tmp"; return 1; }
+  # O modelo escolhido vai para um arquivo, não para uma variável: passo() roda
+  # cada comando em subshell, e uma variável setada aqui morreria ao retornar.
+  cx_padrao >"$CX_MODELO_ARQ" || { echo "o plano não tem nenhum modelo OpenAI"; return 1; }
+  [ -s "$CX_MODELO_ARQ" ] || { echo "o plano não tem nenhum modelo OpenAI"; return 1; }
+  local modelo; modelo=$(cat "$CX_MODELO_ARQ")
+  export CATALOGO_CODEX CAT_PADRAO="$modelo" JSON_TOOL
+  catalogo_codex_json "$modelo" >"$tmp" || { rm -f "$tmp"; return 1; }
   mv "$tmp" "$CX_CATALOGO" || return 1
-  # confirma que o modelo padrão está no catálogo
-  grep -qs "\"$PADRAO_ID\"" "$CX_CATALOGO" || { echo "o modelo $PADRAO_ID não está no catálogo do Codex"; return 1; }
+  grep -qs "\"$modelo\"" "$CX_CATALOGO" || { echo "o modelo $modelo não está no catálogo do Codex"; return 1; }
   return 0
 }
 cx_sem_blocos() { awk '/^# >>> kodeo( provider)? >>>$/{d=1;next} /^# <<< kodeo( provider)? <<<$/{d=0;next} !d' "$1"; }
 cx_escrever() {
   mkdir -p "$CX_DIR" || return 1
   [ -f "$CX_BK" ] || { mkdir -p "$(dirname "$CX_BK")"; [ -f "$CX_CFG" ] && cp "$CX_CFG" "$CX_BK"; }
+  # Lê o modelo que cx_baixar_catalogo escolheu. Se por algum motivo o arquivo
+  # não existir, recalcula em vez de cair no PADRAO_ID, que é Anthropic.
+  local modelo; modelo=$(cat "$CX_MODELO_ARQ" 2>/dev/null)
+  [ -n "$modelo" ] || modelo=$(cx_padrao)
+  [ -n "$modelo" ] || { echo "não há modelo OpenAI no plano"; return 1; }
   local corpo=""
   [ -f "$CX_CFG" ] && corpo=$(cx_sem_blocos "$CX_CFG")
   local cabeca cauda
   cabeca=$(printf '%s\n' "$corpo" | awk '/^\[/{exit} {print}' | grep -vE '^\s*(model|model_provider|model_catalog_json)\s*=')
   cauda=$(printf '%s\n' "$corpo" | awk 'f{print} /^\[/{if(!f){f=1;print}}')
   {
-    cx_bloco_topo "$PADRAO_ID" "$CX_CATALOGO"
+    cx_bloco_topo "$modelo" "$CX_CATALOGO"
     [ -n "$cabeca" ] && printf '%s\n' "$cabeca"
     [ -n "$cauda" ] && printf '%s\n' "$cauda"
     printf '\n'
@@ -998,7 +1050,7 @@ cx_escrever() {
   } >"$CX_CFG.cli-tmp" && mv "$CX_CFG.cli-tmp" "$CX_CFG"
 }
 cx_remover() {
-  rm -f "$CX_CATALOGO"
+  rm -f "$CX_CATALOGO" "$CX_MODELO_ARQ"
   [ -f "$CX_CFG" ] || return 0
   if [ -f "$CX_BK" ]; then mv "$CX_BK" "$CX_CFG"; return 0; fi
   grep -qs "^# >>> kodeo" "$CX_CFG" || return 0
@@ -1021,7 +1073,7 @@ cx_app_reiniciar() {
 }
 aplicar_codex() {
   passo "Lista de modelos do plano em ~/.codex/cli-setup-models.json" cx_baixar_catalogo
-  passo "Provedor e modelo padrão ($PADRAO_ID) em ~/.codex/config.toml" cx_escrever
+  passo "Provedor e modelo OpenAI do plano em ~/.codex/config.toml" cx_escrever
   local f; for f in $(RC_FILES); do passo "KODEO_API_KEY em ${f/#$HOME/~}" rc_escrever_bloco_codex "$f"; done
   passo "Teste de conexão (responses)" teste_responses
   [ -n "$(cx_app)" ] && passo "Reiniciar o ChatGPT Desktop (se estiver aberto)" cx_app_reiniciar
@@ -1042,15 +1094,30 @@ tela_aplicar() {
   tela "5/$TOTAL  Aplicar" 5
   rodape "aguarde:aplicando"
   local i
+  # Codex e ChatGPT Desktop escrevem no mesmo config.toml. Marcar os dois não
+  # deve configurar duas vezes; o alvo é o arquivo, não o nome na tela.
+  local feito_cx=0
   for ((i=0;i<${#NOMES[@]};i++)); do
     [ "${SEL[$i]}" -eq 1 ] || continue
     if [ "${CONF[$i]}" -eq 1 ]; then
       printf '%s  %s%s%s %sdesconfigurar%s\n' "$ESPACO" "$B$W" "${NOMES[$i]}" "$R" "$G" "$R"
-      case "${IDS[$i]}" in claude-code) remover_claude_code;; claude-app) remover_claude_desktop;; opencode) remover_opencode;; codex) remover_codex;; esac
+      case "${IDS[$i]}" in
+        claude-code) remover_claude_code;;
+        claude-app) remover_claude_desktop;;
+        opencode) remover_opencode;;
+        codex|chatgpt)
+          if [ "$feito_cx" -eq 0 ]; then remover_codex; feito_cx=1; fi;;
+      esac
       REMOVIDAS+=("${NOMES[$i]}")
     else
       printf '%s  %s%s%s %sconfigurar%s\n' "$ESPACO" "$B$W" "${NOMES[$i]}" "$R" "$G" "$R"
-      case "${IDS[$i]}" in claude-code) aplicar_claude_code;; claude-app) aplicar_claude_desktop;; opencode) aplicar_opencode;; codex) aplicar_codex;; esac
+      case "${IDS[$i]}" in
+        claude-code) aplicar_claude_code;;
+        claude-app) aplicar_claude_desktop;;
+        opencode) aplicar_opencode;;
+        codex|chatgpt)
+          if [ "$feito_cx" -eq 0 ]; then aplicar_codex; feito_cx=1; fi;;
+      esac
       FEITAS+=("${NOMES[$i]}")
     fi
     printf '\n'
