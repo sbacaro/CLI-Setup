@@ -6,183 +6,70 @@
 #   mcp_listar                    → lista todos os templates disponíveis
 #   mcp_selecionar "nome"         → retorna o JSON do template
 #   mcp_multiplos "nome1,nome2"   → retorna JSON com múltiplos servers
+#
+# Compatível com bash 3.2+ (macOS padrão)
 
-declare -A MCP_TEMPLATES
+# Templates como variáveis prefixadas (compatível com bash 3.2)
+_MCP_FILESYSTEM='{"name":"filesystem","description":"Access and manage local files","transport":"streamable-http","url":"https://mcp.filesystem.example.com/sse","headers":{},"toolPolicy":{"mode":"ask","deny":["rm","rmdir","delete","del"],"allow":["*"]}}'
 
-# ── Filesystem ──────────────────────────────────────────────────────────────
-MCP_TEMPLATES["filesystem"]='{
-  "name": "filesystem",
-  "description": "Access and manage local files",
-  "transport": "streamable-http",
-  "url": "https://mcp.filesystem.example.com/sse",
-  "headers": {},
-  "toolPolicy": {
-    "mode": "ask",
-    "deny": ["rm", "rmdir", "delete", "del"],
-    "allow": ["*"]
-  }
-}'
+_MCP_GITHUB='{"name":"github","description":"GitHub API integration - repos, issues, PRs","transport":"streamable-http","url":"https://mcp.github.com/sse","headers":{},"toolPolicy":{"mode":"ask","deny":["delete_repo","force_push"],"allow":["*"]}}'
 
-# ── GitHub ───────────────────────────────────────────────────────────────────
-MCP_TEMPLATES["github"]='{
-  "name": "github",
-  "description": "GitHub API integration - repos, issues, PRs",
-  "transport": "streamable-http",
-  "url": "https://mcp.github.com/sse",
-  "headers": {},
-  "toolPolicy": {
-    "mode": "ask",
-    "deny": ["delete_repo", "force_push"],
-    "allow": ["*"]
-  }
-}'
+_MCP_BRAVE_SEARCH='{"name":"brave-search","description":"Web search using Brave Search API","transport":"streamable-http","url":"https://api.search.kodeo.com.br/mcp/sse","headers":{},"toolPolicy":{"mode":"allow"}}'
 
-# ── Brave Search ─────────────────────────────────────────────────────────────
-MCP_TEMPLATES["brave-search"]='{
-  "name": "brave-search",
-  "description": "Web search using Brave Search API",
-  "transport": "streamable-http",
-  "url": "https://api.search.kodeo.com.br/mcp/sse",
-  "headers": {},
-  "toolPolicy": {
-    "mode": "allow"
-  }
-}'
+_MCP_MEMORY='{"name":"memory","description":"Persistent memory and context management","transport":"streamable-http","url":"https://mcp.memory.example.com/sse","headers":{},"toolPolicy":{"mode":"ask"}}'
 
-# ── Memory (context7) ─────────────────────────────────────────────────────────
-MCP_TEMPLATES["memory"]='{
-  "name": "memory",
-  "description": "Persistent memory and context management",
-  "transport": "streamable-http",
-  "url": "https://mcp.memory.example.com/sse",
-  "headers": {},
-  "toolPolicy": {
-    "mode": "ask"
-  }
-}'
+_MCP_SLACK='{"name":"slack","description":"Slack workspace integration","transport":"streamable-http","url":"https://mcp.slack.example.com/sse","headers":{},"toolPolicy":{"mode":"ask","deny":["delete_channel"],"allow":["*"]}}'
 
-# ── Slack ────────────────────────────────────────────────────────────────────
-MCP_TEMPLATES["slack"]='{
-  "name": "slack",
-  "description": "Slack workspace integration",
-  "transport": "streamable-http",
-  "url": "https://mcp.slack.example.com/sse",
-  "headers": {},
-  "toolPolicy": {
-    "mode": "ask",
-    "deny": ["delete_channel"],
-    "allow": ["*"]
-  }
-}'
+_MCP_POSTGRES='{"name":"postgres","description":"PostgreSQL database access","command":"npx","args":["-y","@modelcontextprotocol/server-postgres"],"env":{"DATABASE_URL":"${POSTGRES_CONNECTION_STRING}"},"toolPolicy":{"mode":"ask","deny":["drop","truncate"],"allow":["*"]}}'
 
-# ── Postgres ─────────────────────────────────────────────────────────────────
-MCP_TEMPLATES["postgres"]='{
-  "name": "postgres",
-  "description": "PostgreSQL database access",
-  "command": "npx",
-  "args": ["-y", "@modelcontextprotocol/server-postgres"],
-  "env": {
-    "DATABASE_URL": "${POSTGRES_CONNECTION_STRING}"
-  },
-  "toolPolicy": {
-    "mode": "ask",
-    "deny": ["drop", "truncate"],
-    "allow": ["*"]
-  }
-}'
+_MCP_SQLITE='{"name":"sqlite","description":"SQLite database operations","command":"npx","args":["-y","@modelcontextprotocol/server-sqlite","${SQLITE_PATH:-./data.db}"],"toolPolicy":{"mode":"ask","deny":["drop_table"],"allow":["*"]}}'
 
-# ── SQLite ───────────────────────────────────────────────────────────────────
-MCP_TEMPLATES["sqlite"]='{
-  "name": "sqlite",
-  "description": "SQLite database operations",
-  "command": "npx",
-  "args": ["-y", "@modelcontextprotocol/server-sqlite", "${SQLITE_PATH:-./data.db}"],
-  "toolPolicy": {
-    "mode": "ask",
-    "deny": ["drop_table"],
-    "allow": ["*"]
-  }
-}'
+_MCP_AWS='{"name":"aws","description":"AWS services - S3, EC2, Lambda, etc","transport":"streamable-http","url":"https://mcp.aws.example.com/sse","headers":{},"toolPolicy":{"mode":"ask","deny":["delete_bucket","terminate_instances"],"allow":["*"]}}'
 
-# ── AWS ──────────────────────────────────────────────────────────────────────
-MCP_TEMPLATES["aws"]='{
-  "name": "aws",
-  "description": "AWS services - S3, EC2, Lambda, etc",
-  "transport": "streamable-http",
-  "url": "https://mcp.aws.example.com/sse",
-  "headers": {},
-  "toolPolicy": {
-    "mode": "ask",
-    "deny": ["delete_bucket", "terminate_instances"],
-    "allow": ["*"]
-  }
-}'
+_MCP_SEQUENTIAL_THINKING='{"name":"sequential-thinking","description":"Advanced reasoning and problem solving","command":"npx","args":["-y","@modelcontextprotocol/server-sequential-thinking"],"toolPolicy":{"mode":"allow"}}'
 
-# ── Sequential Thinking ──────────────────────────────────────────────────────
-MCP_TEMPLATES["sequential-thinking"]='{
-  "name": "sequential-thinking",
-  "description": "Advanced reasoning and problem solving",
-  "command": "npx",
-  "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
-  "toolPolicy": {
-    "mode": "allow"
-  }
-}'
+_MCP_GOOGLE_MAPS='{"name":"google-maps","description":"Google Maps API integration","transport":"streamable-http","url":"https://mcp.googlemaps.example.com/sse","headers":{},"toolPolicy":{"mode":"ask"}}'
 
-# ── Google Maps ──────────────────────────────────────────────────────────────
-MCP_TEMPLATES["google-maps"]='{
-  "name": "google-maps",
-  "description": "Google Maps API integration",
-  "transport": "streamable-http",
-  "url": "https://mcp.googlemaps.example.com/sse",
-  "headers": {},
-  "toolPolicy": {
-    "mode": "ask"
-  }
-}'
+_MCP_FIGMA='{"name":"figma","description":"Figma design files integration","transport":"streamable-http","url":"https://mcp.figma.example.com/sse","headers":{},"toolPolicy":{"mode":"ask"}}'
 
-# ── Figma ────────────────────────────────────────────────────────────────────
-MCP_TEMPLATES["figma"]='{
-  "name": "figma",
-  "description": "Figma design files integration",
-  "transport": "streamable-http",
-  "url": "https://mcp.figma.example.com/sse",
-  "headers": {},
-  "toolPolicy": {
-    "mode": "ask"
-  }
-}'
+_MCP_NOTION='{"name":"notion","description":"Notion workspace integration","transport":"streamable-http","url":"https://mcp.notion.example.com/sse","headers":{},"toolPolicy":{"mode":"ask","deny":["delete_page","delete_database"],"allow":["*"]}}'
 
-# ── Notion ────────────────────────────────────────────────────────────────────
-MCP_TEMPLATES["notion"]='{
-  "name": "notion",
-  "description": "Notion workspace integration",
-  "transport": "streamable-http",
-  "url": "https://mcp.notion.example.com/sse",
-  "headers": {},
-  "toolPolicy": {
-    "mode": "ask",
-    "deny": ["delete_page", "delete_database"],
-    "allow": ["*"]
-  }
-}'
+# Lista de todos os nomes de MCP servers
+MCP_DISPONIVEIS="filesystem github brave-search memory slack postgres sqlite aws sequential-thinking google-maps figmap notion"
+
+# Função para obter template por nome
+mcp_get() {
+  local nome="$1"
+  case "$nome" in
+    filesystem)        printf '%s' "$_MCP_FILESYSTEM" ;;
+    github)           printf '%s' "$_MCP_GITHUB" ;;
+    brave-search)     printf '%s' "$_MCP_BRAVE_SEARCH" ;;
+    memory)           printf '%s' "$_MCP_MEMORY" ;;
+    slack)            printf '%s' "$_MCP_SLACK" ;;
+    postgres)         printf '%s' "$_MCP_POSTGRES" ;;
+    sqlite)           printf '%s' "$_MCP_SQLITE" ;;
+    aws)              printf '%s' "$_MCP_AWS" ;;
+    sequential-thinking) printf '%s' "$_MCP_SEQUENTIAL_THINKING" ;;
+    google-maps)      printf '%s' "$_MCP_GOOGLE_MAPS" ;;
+    figma)            printf '%s' "$_MCP_FIGMA" ;;
+    notion)           printf '%s' "$_MCP_NOTION" ;;
+    *)                return 1 ;;
+  esac
+}
 
 # Lista todos os templates disponíveis
 mcp_listar() {
-  local names=("${!MCP_TEMPLATES[@]}")
-  printf '%s\n' "${names[@]}" | sort | while read -r name; do
-    printf '%s\n' "$name"
-  done
+  echo "$MCP_DISPONIVEIS" | tr ' ' '\n'
 }
 
 # Retorna o JSON de um template específico
 mcp_selecionar() {
   local nome="$1"
-  if [ -n "${MCP_TEMPLATES[$nome]:-}" ]; then
-    printf '%s' "${MCP_TEMPLATES[$nome]}"
-  else
-    return 1
+  if [ -n "$nome" ]; then
+    mcp_get "$nome"
+    return 0
   fi
+  return 1
 }
 
 # Retorna JSON array com múltiplos templates
@@ -193,9 +80,12 @@ mcp_multiplos() {
   printf '['
   for nome in $selecao; do
     local trimmed; trimmed=$(echo "$nome" | xargs)
-    if [ -n "$trimmed" ] && [ -n "${MCP_TEMPLATES[$trimmed]:-}" ]; then
-      [ "$primeiro" -eq 0 ] && printf ',' || primeiro=0
-      printf '%s' "${MCP_TEMPLATES[$trimmed]}"
+    if [ -n "$trimmed" ]; then
+      local template; template=$(mcp_get "$trimmed" 2>/dev/null)
+      if [ -n "$template" ]; then
+        [ "$primeiro" -eq 0 ] && printf ',' || primeiro=0
+        printf '%s' "$template"
+      fi
     fi
   done
   printf ']'
