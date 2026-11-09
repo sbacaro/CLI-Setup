@@ -325,7 +325,7 @@ CHAVE_DO_COMANDO=0
 
 tela_chave() {
   tela "1/$TOTAL  Chave" 1
-  linha "${B}${W}Passo 1 de 4 — a chave.${R}"
+  linha "${B}${W}Passo 1 de $TOTAL — a chave.${R}"
   linha ""
   linha "O configurador precisa da sua chave para ver quais modelos o seu plano tem."
   linha "Ela fica só nos arquivos de configuração das ferramentas que você marcar."
@@ -362,7 +362,7 @@ tela_chave() {
 
 tela_chave_do_comando() {
   tela "1/$TOTAL  Chave" 1
-  linha "${B}${W}Passo 1 de 4 — a chave.${R}"
+  linha "${B}${W}Passo 1 de $TOTAL — a chave.${R}"
   linha ""
   linha "Chave recebida."
   linha ""
@@ -409,7 +409,7 @@ detectar() {
 
 tela_ferramentas() { # 0 = aplicar, 1 = voltar
   tela "2/$TOTAL  Ferramentas" 2
-  linha "${B}${W}Passo 2 de 4 — o que configurar.${R}"
+  linha "${B}${W}Passo 2 de $TOTAL — o que configurar.${R}"
   linha ""
   linha "O que já está configurado pode ser desconfigurado."
   linha "${G}Codex e ChatGPT Desktop usam o mesmo arquivo: marcar um configura os dois.${R}"
@@ -467,7 +467,7 @@ carregar_catalogo() {
 
 tela_modelos() { # 0 = seguir, 1 = voltar
   tela "3/$TOTAL  Modelos" 3
-  linha "${B}${W}Passo 3 de 5 — os modelos do seu plano.${R}"
+  linha "${B}${W}Passo 3 de $TOTAL — os modelos do seu plano.${R}"
   linha ""
   local k
   if ! carregar_catalogo; then
@@ -504,7 +504,7 @@ MCP_SEL=(0 0 0 0 0 0 0 0 0)
 
 tela_desktop_completo() { # 0 = seguir, 1 = voltar
   tela "4/$TOTAL  Desktop" 4
-  linha "${B}${W}Passo 4 de 5 — Claude Desktop completo.${R}"
+  linha "${B}${W}Passo 4 de $TOTAL — Claude Desktop completo.${R}"
   linha ""
   linha "O Claude Desktop 3P com gateway vem vazio: sem MCP, sem skills, sem plugins."
   linha "Esta etapa adiciona tudo o que a versão oficial da Anthropic oferece."
