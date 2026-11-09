@@ -167,15 +167,15 @@ abertura() {
 }
 
 # ── moldura das telas ──────────────────────────────────────────────────────
-TOTAL=4
+TOTAL=5
 ETAPA=0
 etapas() {
   # a coluna encosta no bloco, não flutua no fim da tela
   local col=$((MARGEM+LARG+3)) i marca
   [ "$COLS" -ge $((col+ETAPAS_LARG)) ] || return 0
   printf '%s[3;%dH%sEtapas%s' "$E" "$col" "$G" "$R"
-  for i in 1 2 3 4; do
-    case "$i" in 1) marca="Chave";; 2) marca="Ferramentas";; 3) marca="Modelos";; 4) marca="Aplicar";; esac
+  for i in 1 2 3 4 5; do
+    case "$i" in 1) marca="Chave";; 2) marca="Ferramentas";; 3) marca="Modelos";; 4) marca="Desktop";; 5) marca="Aplicar";; esac
     if [ "$i" -lt "$ETAPA" ]; then
       printf '%s[%d;%dH%s✓%s %s%s%s' "$E" $((3+i)) "$col" "$OK" "$R" "$G" "$marca" "$R"
     elif [ "$i" -eq "$ETAPA" ]; then
@@ -254,10 +254,10 @@ if [ -z "$CLI_DIR" ]; then
   trap 'rm -rf "$CLI_DIR"' EXIT
   mkdir -p "$CLI_DIR/lib"
   ok_libs=0
-  for f in json catalogo geradores opencode; do
+  for f in json catalogo geradores opencode desktop; do
     if curl -fsSL -m 30 "$CLI_RAW/lib/$f.sh" -o "$CLI_DIR/lib/$f.sh" 2>/dev/null; then ok_libs=$((ok_libs+1)); fi
   done
-  if [ "$ok_libs" -lt 4 ]; then
+  if [ "$ok_libs" -lt 5 ]; then
     printf '\n  %s✗%s Não consegui baixar as bibliotecas de %s.\n' "$ERR" "$R" "$CLI_RAW"
     printf '    Verifique a internet, ou baixe o repositório inteiro e rode ./instalar.sh\n\n'
     exit 1
@@ -267,6 +267,7 @@ fi
 . "$CLI_DIR/lib/catalogo.sh"
 . "$CLI_DIR/lib/geradores.sh"
 . "$CLI_DIR/lib/opencode.sh"
+. "$CLI_DIR/lib/desktop.sh"
 
 # ══ 1/4  CHAVE ════════════════════════════════════════════════════════════
 CHAVE="${CLI_KEY:-${KODEO_KEY:-}}"
@@ -505,7 +506,161 @@ tela_modelos() { # 0 = seguir, 1 = voltar
   while :; do k=$(tecla); case "$k" in enter) return 0;; left) return 1;; esc) return 1;; eof) cancela;; esac; done
 }
 
-# ══ 4/4  APLICAR ══════════════════════════════════════════════════════════
+# ══ 4/5  DESKTOP ══════════════════════════════════════════════════════════
+# O que o app perde ao sair da assinatura Anthropic. Cada item abaixo restaura
+# uma camada com um caminho que funciona sem infraestrutura da Anthropic.
+BUSCA_PROVEDOR="${CLI_BUSCA_PROVEDOR:-}"
+BUSCA_CHAVE="${CLI_BUSCA_CHAVE:-}"
+GITHUB_CLIENT_ID="${CLI_GITHUB_CLIENT_ID:-}"
+EGRESS_MODE="${CLI_EGRESS:-padrao}"
+
+tela_desktop() { # 0 = seguir, 1 = voltar
+  tela "4/$TOTAL  Desktop" 4
+  linha "${B}${W}Passo 4 de $TOTAL — o que o app perde fora da assinatura.${R}"
+  linha ""
+  linha "Com um gateway, o Claude Desktop deixa de receber do Console da Anthropic:"
+  linha "conectores, skills e plugins. Esta etapa devolve as três camadas."
+  linha ""
+
+  # Só faz sentido se o Claude Desktop foi marcado.
+  local ativo=0 i
+  for i in 0 1 2 3; do [ "$i" -eq 1 ] && [ "${SEL[$i]}" -eq 1 ] && ativo=1; done
+  if [ "$ativo" -eq 0 ]; then
+    linha "${G}Claude Desktop não está marcado — pulando.${R}"
+    linha ""
+    rodape "enter:continuar" "←:voltar" "ctrl+c:sair"
+    while :; do k=$(tecla); case "$k" in enter) return 0;; left) return 1;; esc) return 1;; eof) cancela;; esac; done
+    return 0
+  fi
+
+  local k
+  # ── 1. Skills ─────────────────────────────────────────────────────────────
+  linha "${B}${W}Skills oficiais da Anthropic${R}"
+  linha "${G}Marketplace público anthropics/skills (Apache 2.0): docx, pdf, pptx, xlsx${R}"
+  linha "${G}e mais. É o mesmo repositório que alimenta o Claude real.${R}"
+  linha ""
+  linha "  ${OK}✓${R} incluído — versão mais recente resolvida na hora da instalação"
+  linha ""
+
+  # ── 2. Busca na web ───────────────────────────────────────────────────────
+  linha "${B}${W}Busca na web${R}"
+  linha "${G}O conector de busca roda na sua máquina, não em servidor da Anthropic.${R}"
+  linha "${G}Precisa de uma chave de provedor: brave.com, tavily.com ou exa.ai.${R}"
+  linha ""
+  linha "  provedor: ${W}${BUSCA_PROVEDOR:-nenhum}${R}"
+  if [ -z "$BUSCA_PROVEDOR" ]; then
+    linha "  ${G}Sem provedor, o conector de busca não é incluído.${R}"
+  fi
+  linha ""
+
+  # ── 3. GitHub ─────────────────────────────────────────────────────────────
+  linha "${B}${W}GitHub${R}"
+  linha "${G}Conector embutido no app (github.com ou Enterprise). Roda local.${R}"
+  linha "${G}Precisa de um OAuth App clientId seu — o app cuida do login.${R}"
+  linha ""
+  if [ -n "$GITHUB_CLIENT_ID" ]; then
+    linha "  clientId: ${W}${GITHUB_CLIENT_ID:0:12}…${R}"
+  else
+    linha "  ${G}Sem clientId, o conector GitHub não é incluído.${R}"
+  fi
+  linha ""
+
+  # ── 4. Egress ─────────────────────────────────────────────────────────────
+  linha "${B}${W}Egress da sandbox${R}  ${G}atual: ${W}${EGRESS_MODE}${R}"
+  linha "${G}Sem isso o Web Fetch e o shell dentro do Cowork não saem.${R}"
+  linha ""
+  rodape "1:busca" "2:github" "3:egress" "enter:continuar" "←:voltar" "ctrl+c:sair"
+
+  while :; do
+    k=$(tecla)
+    case "$k" in
+      1) _desktop_busca;;
+      2) _desktop_github;;
+      3) _desktop_egress;;
+      enter) return 0;;
+      left|b|B) return 1;;
+      eof) cancela;;
+    esac
+    tela_desktop_render
+  done
+}
+
+# redesenha só o corpo, sem reexecutar a tela inteira
+tela_desktop_render() { tela_desktop >/dev/null 2>&1 || true; }
+
+_desktop_busca() {
+  linha ""
+  linha "${B}${W}Provedor de busca:${R} 1 Brave  2 Tavily  3 Exa  0 nenhum"
+  linha "${G}Depois cole a chave na linha de baixo.${R}"
+  local k
+  while :; do
+    k=$(tecla)
+    case "$k" in
+      1) BUSCA_PROVEDOR="brave"; break;;
+      2) BUSCA_PROVEDOR="tavily"; break;;
+      3) BUSCA_PROVEDOR="exa"; break;;
+      0) BUSCA_PROVEDOR=""; BUSCA_CHAVE=""; return 0;;
+      esc) return 0;;
+      eof) cancela;;
+    esac
+  done
+  linha ""
+  linha "Cole a chave de API (enter confirma, vazio mantém):"
+  local chave="" c i
+  cursor_on
+  while :; do
+    limpa_linha; printf '%s    %s❯%s ' "$ESPACO" "$ACC_F" "$R"
+    for ((i=0; i<${#chave}; i++)); do printf '•'; done
+    c=$(tecla)
+    case "$c" in
+      enter) [ -n "$chave" ] && BUSCA_CHAVE="$chave"; break;;
+      bs) chave="${chave%?}";;
+      space|up|down|left|right|esc) ;;
+      eof) cursor_off; cancela;;
+      *) chave="$chave$c";;
+    esac
+  done
+  cursor_off
+}
+
+_desktop_github() {
+  linha ""
+  linha "Cole o clientId do seu OAuth App do GitHub (enter confirma, vazio remove):"
+  linha "${G}Crie em github.com/settings/developers → New OAuth App.${R}"
+  local id="" c i
+  cursor_on
+  while :; do
+    limpa_linha; printf '%s    %s❯%s ' "$ESPACO" "$ACC_F" "$R"
+    for ((i=0; i<${#id}; i++)); do printf '•'; done
+    c=$(tecla)
+    case "$c" in
+      enter) GITHUB_CLIENT_ID="$id"; break;;
+      bs) id="${id%?}";;
+      space|up|down|left|right|esc) ;;
+      eof) cursor_off; cancela;;
+      *) id="$id$c";;
+    esac
+  done
+  cursor_off
+}
+
+_desktop_egress() {
+  linha ""
+  linha "${B}${W}Egress:${R} 1 mínimo  2 padrão  3 completo"
+  local k
+  while :; do
+    k=$(tecla)
+    case "$k" in
+      1) EGRESS_MODE="minimo"; return 0;;
+      2) EGRESS_MODE="padrao"; return 0;;
+      3) EGRESS_MODE="completo"; return 0;;
+      esc) return 0;;
+      eof) cancela;;
+    esac
+  done
+}
+
+# ══ 5/5  APLICAR ══════════════════════════════════════════════════════════
 FALHAS=0
 passo() { # texto, comando…
   local txt="$1"; shift
@@ -586,6 +741,17 @@ remover_claude_code() {
 
 # ── Claude Desktop ─────────────────────────────────────────────────────────
 cd_config_json() { claude_desktop_json "$BASE" "$CHAVE"; }
+# Gera a config com as três camadas que o app perde fora da assinatura Anthropic:
+# conectores embutidos, marketplace de skills oficial e egress.
+cd_config_json_completo() {
+  local mcp mk eg
+  mcp=$(desktop_mcp_builtin "$BUSCA_PROVEDOR" "$BUSCA_CHAVE" "$GITHUB_CLIENT_ID") || mcp="[]"
+  mk=$(desktop_marketplaces_json 1) || mk="[]"
+  eg=$(desktop_egress_json "$EGRESS_MODE") || eg="[]"
+  printf '%s' "$CATALOGO_JSON" | CAT_BASE="$BASE" CAT_CHAVE="$CHAVE" CAT_OPUS="$PADRAO_ID" \
+    CAT_MCP_BUILTIN="$mcp" CAT_MARKETPLACES="$mk" CAT_EGRESS="$eg" \
+    catalogo_gerar_claude
+}
 cd_escrever() {
   local dir; dir=$(pasta_3p); local lib="$dir/configLibrary"; mkdir -p "$lib" || return 1
   # Sem catálogo, a config sairia com inferenceModels vazio e o app ignoraria tudo.
@@ -597,7 +763,8 @@ cd_escrever() {
     local ant; ant=$(grep -o '"appliedId": *"[^"]*"' "$lib/_meta.json" | sed 's/.*: *"//; s/"$//')
     [ -n "$ant" ] && rm -f "$lib/$ant.json"; rm -f "$lib/_meta.json"
   fi
-  local config_json; config_json=$(cd_config_json)
+  local config_json; config_json=$(cd_config_json_completo) || { echo "falha ao montar a config"; return 1; }
+  case "$config_json" in *'"inferenceModels"'*) ;; *) echo "config sem modelos"; return 1;; esac
   ( umask 077; printf '%s' "$config_json" >"$lib/$id.json.cli-tmp" ) && mv "$lib/$id.json.cli-tmp" "$lib/$id.json" || return 1
   ( umask 077; printf '{\n  "appliedId": "%s",\n  "entries": [{ "id": "%s", "name": "Kodeo" }]\n}\n' "$id" "$id" >"$lib/_meta.json.cli-tmp" ) \
     && mv "$lib/_meta.json.cli-tmp" "$lib/_meta.json"
@@ -825,6 +992,8 @@ if chave_ok "$CHAVE"; then CHAVE_DO_COMANDO=1; tela_chave_do_comando; fi
 while :; do
   [ "$CHAVE_DO_COMANDO" -eq 0 ] && tela_chave
   tela_ferramentas || continue
-  tela_modelos && break
+  tela_modelos || continue
+  tela_desktop || continue
+  break
 done
 tela_aplicar

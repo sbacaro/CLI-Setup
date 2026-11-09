@@ -85,6 +85,14 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
   cfg.userPluginUploadsEnabled=true;
   cfg.isLocalDevMcpEnabled=true;
   cfg.mcpPersistentAlwaysAllowEnabled=true;
+  // Camadas que o app perde ao sair da assinatura Anthropic. Vêm prontas do
+  // lib/desktop.sh como JSON validado; se vazias, a chave não é gravada.
+  const mcp=(process.env.CAT_MCP_BUILTIN||"").trim();
+  if(mcp&&mcp!=="[]"){try{cfg.managedMcpServers=JSON.parse(mcp)}catch(e){}}
+  const mk=(process.env.CAT_MARKETPLACES||"").trim();
+  if(mk&&mk!=="[]"){try{cfg.allowedPluginMarketplaces=JSON.parse(mk)}catch(e){}}
+  const eg=(process.env.CAT_EGRESS||"").trim();
+  if(eg&&eg!=="[]"){try{cfg.coworkEgressAllowedHosts=JSON.parse(eg)}catch(e){}}
   process.stdout.write(JSON.stringify(cfg,null,2)+"\n");
 });'
   else
@@ -141,6 +149,15 @@ cfg.update({"chatTabEnabled":True,"coworkTabEnabled":True,
             "disableBundledSkills":False,"userPluginMarketplacesEnabled":True,
             "userPluginUploadsEnabled":True,"isLocalDevMcpEnabled":True,
             "mcpPersistentAlwaysAllowEnabled":True})
+def _j(v):
+    try: return json.loads(v) if v and v.strip() else None
+    except Exception: return None
+_mcp=_j(os.environ.get("CAT_MCP_BUILTIN",""))
+if _mcp: cfg["managedMcpServers"]=_mcp
+_mk=_j(os.environ.get("CAT_MARKETPLACES",""))
+if _mk: cfg["allowedPluginMarketplaces"]=_mk
+_eg=_j(os.environ.get("CAT_EGRESS",""))
+if _eg: cfg["coworkEgressAllowedHosts"]=_eg
 print(json.dumps(cfg,indent=2,ensure_ascii=False))
 '
   fi
