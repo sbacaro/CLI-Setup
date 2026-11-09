@@ -514,6 +514,7 @@ BUSCA_CHAVE="${CLI_BUSCA_CHAVE:-}"
 GITHUB_CLIENT_ID="${CLI_GITHUB_CLIENT_ID:-}"
 EGRESS_MODE="${CLI_EGRESS:-padrao}"
 MCP_DIRS="${CLI_MCP_DIRS:-}"
+MCP_REMOTOS="${CLI_MCP_REMOTOS:-}"
 
 tela_desktop() { # 0 = seguir, 1 = voltar
   tela "4/$TOTAL  Desktop" 4
@@ -568,6 +569,18 @@ tela_desktop() { # 0 = seguir, 1 = voltar
   fi
   linha ""
 
+  # ── 3. Conectores remotos oficiais ────────────────────────────────────────
+  linha "${B}${W}Conectores remotos (OAuth)${R}"
+  linha "${G}Os \"Made by Anthropic\" só existem na infra da Anthropic. Estes são${R}"
+  linha "${G}os oficiais de cada fornecedor: rodam no host deles, funcionam em 3P.${R}"
+  linha ""
+  if [ -n "$MCP_REMOTOS" ]; then
+    linha "  marcados: ${W}${MCP_REMOTOS}${R}"
+  else
+    linha "  ${G}nenhum marcado — o login OAuth abre no navegador no primeiro Connect.${R}"
+  fi
+  linha ""
+
   # ── 4. MCP local ──────────────────────────────────────────────────────────
   linha "${B}${W}MCP local (npx)${R}"
   linha "${G}Filesystem, Memory e Sequential Thinking rodam como processo local.${R}"
@@ -584,15 +597,16 @@ tela_desktop() { # 0 = seguir, 1 = voltar
   linha "${B}${W}Egress da sandbox${R}  ${G}atual: ${W}${EGRESS_MODE}${R}"
   linha "${G}Sem isso o Web Fetch e o shell dentro do Cowork não saem.${R}"
   linha ""
-  rodape "1:busca" "2:github" "3:mcp local" "4:egress" "enter:continuar" "←:voltar" "ctrl+c:sair"
+  rodape "1:busca" "2:github" "3:remotos" "4:local" "5:egress" "enter:continuar" "←:voltar"
 
   while :; do
     k=$(tecla)
     case "$k" in
       1) _desktop_busca;;
       2) _desktop_github;;
-      3) _desktop_mcp_local;;
-      4) _desktop_egress;;
+      3) _desktop_remotos;;
+      4) _desktop_mcp_local;;
+      5) _desktop_egress;;
       enter) return 0;;
       left|b|B) return 1;;
       eof) cancela;;
@@ -658,6 +672,48 @@ _desktop_github() {
     esac
   done
   cursor_off
+}
+
+_desktop_remotos() {
+  linha ""
+  linha "${B}${W}Conectores remotos:${R} espaço marca, enter confirma"
+  local n=0 k cur=0 i
+  local chaves=() nomes=() sel=()
+  while IFS='|' read -r c nome; do
+    [ -z "$c" ] && continue
+    chaves[$n]="$c"; nomes[$n]="$nome"
+    case ",${MCP_REMOTOS}," in *",$c,"*) sel[$n]=1;; *) sel[$n]=0;; esac
+    n=$((n+1))
+  done <<EOF
+$(desktop_remotos_lista)
+EOF
+  local desenha_r
+  desenha_r() {
+    for ((i=0;i<n;i++)); do
+      local pre="  " caixa
+      [ "$i" -eq "$cur" ] && pre="${ACC_F}❯${R} "
+      if [ "${sel[$i]}" -eq 1 ]; then caixa="${ACC_F}[x]${R}"; else caixa="${G}[ ]${R}"; fi
+      limpa_linha; printf '%s  %s%s %s%s%s\n' "$ESPACO" "$pre" "$caixa" "$W" "${nomes[$i]}" "$R"
+    done
+  }
+  desenha_r
+  while :; do
+    k=$(tecla)
+    case "$k" in
+      up|k) cur=$(( (cur+n-1) % n ));;
+      down|j) cur=$(( (cur+1) % n ));;
+      space) sel[$cur]=$((1-sel[$cur]));;
+      enter)
+        MCP_REMOTOS=""
+        for ((i=0;i<n;i++)); do
+          [ "${sel[$i]}" -eq 1 ] && MCP_REMOTOS="${MCP_REMOTOS}${MCP_REMOTOS:+,}${chaves[$i]}"
+        done
+        return 0;;
+      esc) return 0;;
+      eof) cancela;;
+    esac
+    printf '%s[%dA' "$E" "$n"; desenha_r
+  done
 }
 
 _desktop_mcp_local() {
@@ -786,11 +842,13 @@ cd_config_json_completo() {
   mk=$(desktop_marketplaces_json 1 1) || mk="[]"
   eg=$(desktop_egress_json "$EGRESS_MODE") || eg="[]"
   ml=$(desktop_mcp_local "$MCP_DIRS" 2>/dev/null) || ml="[]"
+  REMOTO_JSON=$(desktop_mcp_remoto "$MCP_REMOTOS") || REMOTO_JSON="[]"
+  export REMOTO_JSON
   printf '%s' "$CATALOGO_JSON" | \
     CAT_BASE="$BASE" CAT_CHAVE="$CHAVE" CAT_OPUS="$PADRAO_ID" \
     CAT_MARKETPLACES="$mk" CAT_EGRESS="$eg" CAT_MCP_LOCAL="$ml" \
     CAT_BUSCA_PROVEDOR="$BUSCA_PROVEDOR" CAT_BUSCA_CHAVE="$BUSCA_CHAVE" \
-    CAT_GITHUB_CLIENT_ID="$GITHUB_CLIENT_ID" \
+    CAT_GITHUB_CLIENT_ID="$GITHUB_CLIENT_ID" CAT_MCP_REMOTO="$REMOTO_JSON" \
     catalogo_gerar_claude
 }
 cd_escrever() {

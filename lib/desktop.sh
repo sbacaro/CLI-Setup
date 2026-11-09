@@ -78,11 +78,44 @@ desktop_egress_json() { # minimo|padrao|completo
   printf ']'
 }
 
-# ── Conectores embutidos no app ─────────────────────────────────────────────
-# Cada entrada usa "server" — nunca url/transport/command junto. A doc diz que
-# uma entrada que mistura "server" com campo remoto é rejeitada.
-# Só entra o conector que tem credencial: sem chave ele não conecta e o app
-# mostra erro de configuração em vez de funcionar.
+# ── Conectores remotos oficiais (vendor-hosted, OAuth) ──────────────────────
+# Cada URL foi verificada: responde 401 (existe, pede OAuth) e serve
+# /.well-known/oauth-protected-resource ou /.well-known/oauth-authorization-server,
+# que é o que o app exige para registrar o cliente e abrir o navegador.
+#
+# São os substitutos reais dos conectores "Made by Anthropic", que só existem na
+# infraestrutura da Anthropic. Estes rodam no host do próprio fornecedor e ficam
+# acessíveis em 3P. Nenhum precisa de chave: o usuário clica Connect e o app faz
+# o fluxo OAuth no navegador.
+DESKTOP_REMOTOS="linear|Linear|https://mcp.linear.app/mcp|http
+notion|Notion|https://mcp.notion.com/mcp|http
+sentry|Sentry|https://mcp.sentry.dev/mcp|http
+atlassian|Atlassian|https://mcp.atlassian.com/v1/mcp|http
+stripe|Stripe|https://mcp.stripe.com|http
+asana|Asana|https://mcp.asana.com/sse|sse"
+
+desktop_remotos_lista() { # → "chave|Nome" por linha
+  printf '%s\n' "$DESKTOP_REMOTOS" | awk -F'|' '{print $1"|"$2}'
+}
+
+desktop_mcp_remoto() { # SELECAO (chaves separadas por vírgula) → array JSON
+  local sel=",$(printf '%s' "${1:-}" | tr -d ' ')," out="" sep="" k n u t
+  [ "$sel" = ",," ] && { printf '[]'; return 0; }
+  while IFS='|' read -r k n u t; do
+    [ -z "$k" ] && continue
+    case "$sel" in
+      *",$k,"*)
+        out="$out$sep{\"name\":\"$n\",\"transport\":\"$t\",\"url\":\"$u\",\"oauth\":true}"
+        sep=","
+        ;;
+    esac
+  done <<EOF
+$DESKTOP_REMOTOS
+EOF
+  printf '[%s]' "$out"
+}
+
+# ── Diretório de plugins de organização ─────────────────────────────────────
 org_plugins_dir() {
   if [ "$(uname -s)" = Darwin ]; then
     printf '/Library/Application Support/Claude/org-plugins'

@@ -120,6 +120,16 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
       }
     }catch(e){}
   }
+  // MCP remotos (vendor-hosted, OAuth). O app abre o navegador no Connect.
+  const mr=(process.env.CAT_MCP_REMOTO||"").trim();
+  if(mr&&mr!=="[]"){
+    try{
+      const extra=JSON.parse(mr);
+      if(Array.isArray(extra)&&extra.length){
+        cfg.managedMcpServers=[...(cfg.managedMcpServers||[]),...extra];
+      }
+    }catch(e){}
+  }
   // Marketplaces oficiais da Anthropic (allowedPluginMarketplaces).
   const mk=(process.env.CAT_MARKETPLACES||"").trim();
   if(mk&&mk!=="[]"){try{cfg.allowedPluginMarketplaces=JSON.parse(mk)}catch(e){}}
@@ -206,6 +216,9 @@ if _mcp: cfg["managedMcpServers"]=_mcp
 _ml=_j(os.environ.get("CAT_MCP_LOCAL",""))
 if _ml:
     cfg["managedMcpServers"]=cfg.get("managedMcpServers",[])+_ml
+_mr=_j(os.environ.get("CAT_MCP_REMOTO",""))
+if _mr:
+    cfg["managedMcpServers"]=cfg.get("managedMcpServers",[])+_mr
 _mk=_j(os.environ.get("CAT_MARKETPLACES",""))
 if _mk: cfg["allowedPluginMarketplaces"]=_mk
 _eg=_j(os.environ.get("CAT_EGRESS",""))
