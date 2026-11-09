@@ -539,6 +539,7 @@ tela_desktop_completo() { # 0 = seguir, 1 = voltar
   
   # Detectar se Desktop está selecionado
   local desktop_ativo=0
+  local i
   for i in 0 1 2 3; do
     if [ "$i" -eq 1 ] && [ "${SEL[$i]}" -eq 1 ]; then desktop_ativo=1; fi
   done
@@ -609,16 +610,19 @@ tela_desktop_completo() { # 0 = seguir, 1 = voltar
         linha "${B}${W}Egress allowlist:${R}"
         linha "${G}Quais domínios o Cowork pode acessar?${R}"
         linha ""
-        rodape "1:mínimo" "2:padrão(★)" "3:completo" "enter:continuar" "←:voltar"
+        rodape "1:mínimo" "2:padrão(★)" "3:completo" "enter:padrão" "←:voltar"
         while :; do
           k=$(tecla)
           case "$k" in
             1) EGRESS_MODE="minimo"; break ;;
             2) EGRESS_MODE="padrao"; break ;;
             3) EGRESS_MODE="completo"; break ;;
+            enter|eof) EGRESS_MODE="padrao"; break ;;
             left|b|B) return 1 ;;
           esac
         done
+        # se voltou do egress sem escolha, continua na tela de MCP
+        MCP_FINAL="${MCP_SERVERS}"
         return 0 ;;
     esac
     printf '%s[%dA' "$E" "$n"; desenha_mcp
@@ -714,16 +718,20 @@ cd_config_json_completo() {
 }
 cd_escrever() {
   local dir; dir=$(pasta_3p); local lib="$dir/configLibrary"; mkdir -p "$lib" || return 1
+  # Sem catálogo, a config sairia com inferenceModels vazio e o app ignoraria tudo.
+  if [ -z "$CATALOGO_JSON" ]; then echo "catálogo vazio: rode a etapa de modelos antes"; return 1; fi
   local id; id=$( (uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null) | tr 'A-Z' 'a-z')
-  [ -n "$id" ] || return 1
+  [ -n "$id" ] || { echo "não consegui gerar um id"; return 1; }
   # tira um config nosso anterior (só o nosso)
   if [ -f "$lib/_meta.json" ] && grep -q '"name": *"Kodeo"' "$lib/_meta.json" 2>/dev/null; then
     local ant; ant=$(grep -o '"appliedId": *"[^"]*"' "$lib/_meta.json" | sed 's/.*: *"//; s/"$//')
     [ -n "$ant" ] && rm -f "$lib/$ant.json"; rm -f "$lib/_meta.json"
   fi
-  # Usa config completa se Desktop completo está ativo e há seleção de MCP
+  # Sempre usa a config completa: o Desktop 3P precisa de capabilities (skills,
+  # plugins, tabs) mesmo sem MCP — senão o app fica cru, como se não estivesse
+  # configurado. A lista de MCP pode estar vazia.
   local config_json
-  if [ -n "$MCP_SERVERS" ] && [ "$MCP_SERVERS" != "null" ]; then
+  if type catalogo_gerar_claude_completo >/dev/null 2>&1; then
     config_json=$(cd_config_json_completo)
   else
     config_json=$(cd_config_json)

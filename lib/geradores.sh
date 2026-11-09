@@ -36,15 +36,21 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
     ((b.context_length||0)-(a.context_length||0)) ||
     String(a.id).localeCompare(String(b.id));
   const claude=ms.filter(m=>ehClaude(m.id)).sort(ordena);
+  // Sem aliases de revenda: "kodeo-opus-5.5" e "claude-opus-5.5-kodeo" duplicam
+  // o mesmo modelo no seletor. O nome canônico ("claude-opus-5.5") já está lá.
+  const semRevenda=claude.filter(m=>!/kodeo/i.test(m.id));
+  const listaFinal=semRevenda.length?semRevenda:claude;
   // o melhor de cada tier, pela mesma ordem acima
   const padraoTier={};
-  for(const m of claude){const t=td(m.id); if(t&&!padraoTier[t])padraoTier[t]=m.id;}
+  for(const m of listaFinal){const t=td(m.id); if(t&&!padraoTier[t])padraoTier[t]=m.id;}
   const porId={};
-  for(const m of claude) porId[m.id]=m;
+  for(const m of listaFinal) porId[m.id]=m;
 
   const monta=(m)=>{
     const t=td(m.id);
-    const o={name:m.id,labelOverride:m.display_name||m.id};
+    // Nome limpo para o seletor: o app já mostra o provedor, então "(Kodeo)" é ruído.
+    const nome=(m.display_name||m.id).replace(/\s*\(kodeo\)\s*$/i,"").trim();
+    const o={name:m.id,labelOverride:nome};
     if(t){
       o.anthropicFamilyTier=t;
       if(padraoTier[t]===m.id)o.isFamilyDefault=true;
@@ -52,10 +58,10 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
     if((m.context_length||0)>=1000000)o.supports1m=true;
     return o;
   };
-  const modelos=claude.map(monta);
+  const modelos=listaFinal.map(monta);
 
   // padrão global: o Opus do plano, senão o primeiro Claude
-  const padrao=opus||padraoTier.opus||(claude[0]&&claude[0].id)||"";
+  const padrao=opus||padraoTier.opus||(listaFinal[0]&&listaFinal[0].id)||"";
   const cfg={
     inferenceProvider:"gateway",
     inferenceCredentialKind:"static",
@@ -90,13 +96,15 @@ def ordena(m):
     return (1 if "-kodeo" in i else 0, 1 if i.startswith("kodeo-") else 0,
             -versao(i), -(m.get("context_length") or 0), i)
 claude=sorted([m for m in ms if eh(m.get("id",""))], key=ordena)
+sem_revenda=[m for m in claude if not re.search(r"kodeo", m.get("id",""), re.I)]
+claude=sem_revenda if sem_revenda else claude
 padrao_tier={}
 for m in claude:
     t=td(m["id"])
     if t and t not in padrao_tier: padrao_tier[t]=m["id"]
 modelos=[]
 for m in claude:
-    t=td(m["id"]); o={"name":m["id"],"labelOverride":m.get("display_name") or m["id"]}
+    t=td(m["id"]); o={"name":m["id"],"labelOverride":re.sub(r"\s*\(kodeo\)\s*$","",(m.get("display_name") or m["id"]),flags=re.I).strip()}
     if t:
         o["anthropicFamilyTier"]=t
         if padrao_tier.get(t)==m["id"]: o["isFamilyDefault"]=True
@@ -223,22 +231,43 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
   let d={};try{d=JSON.parse(t)}catch{d={}}
   let ms=Array.isArray(d.models)?d.models:(Array.isArray(d.data)?d.data:[]);
   if(!ms.length){process.stdout.write("{\"models\":[]}\n");return;}
+  const id=m=>m.slug||m.id||"";
+  // 1. Só família OpenAI: o Codex/ChatGPT não deve receber Claude, Grok, GLM, DeepSeek, MiniMax.
+  const ehOpenAI=i=>/^gpt|^codex|^o[0-9]|openai/i.test(i);
+  ms=ms.filter(m=>ehOpenAI(id(m)));
+  // 2. Sem aliases de revenda (-kodeo / kodeo-): o nome canônico já está na lista.
+  ms=ms.filter(m=>!/kodeo/i.test(id(m)));
+  // 3. Nome comercial: o app remove o prefixo "GPT-" da família OpenAI. Usar espaço
+  //    em vez de hífen preserva o nome inteiro no seletor ("GPT 5.5", não "5.5").
+  ms=ms.map(m=>{
+    if(typeof m.display_name==="string"){
+      m.display_name=m.display_name.replace(/^GPT-/i,"GPT ");
+    }
+    return m;
+  });
+  if(!ms.length){process.stdout.write("{\"models\":[]}\n");return;}
   if(padrao){
-    const i=ms.findIndex(m=>(m.slug||m.id)===padrao);
+    const i=ms.findIndex(m=>id(m)===padrao);
     if(i>0){const [x]=ms.splice(i,1);ms.unshift(x);}
   }
   process.stdout.write(JSON.stringify({models:ms},null,2)+"\n");
 });'
   else
     python3 -c '
-import sys,json,os
+import sys,json,os,re
 padrao=os.environ.get("CAT_PADRAO","")
 try: d=json.load(sys.stdin)
 except Exception: d={}
 ms=d.get("models") if isinstance(d.get("models"),list) else (d.get("data") if isinstance(d.get("data"),list) else [])
+def ident(m): return m.get("slug") or m.get("id") or ""
+ms=[m for m in ms if re.match(r"^(gpt|codex|o[0-9]|openai)",ident(m),re.I)]
+ms=[m for m in ms if not re.search(r"kodeo",ident(m),re.I)]
+for m in ms:
+    if isinstance(m.get("display_name"),str):
+        m["display_name"]=re.sub(r"^GPT-","GPT ",m["display_name"],flags=re.I)
 if padrao:
     for i,m in enumerate(ms):
-        if (m.get("slug") or m.get("id"))==padrao:
+        if ident(m)==padrao:
             if i>0: ms.insert(0,ms.pop(i))
             break
 print(json.dumps({"models":ms},indent=2,ensure_ascii=False))
@@ -278,20 +307,23 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
     String(a.id).localeCompare(String(b.id));
   
   const claude=ms.filter(m=>ehClaude(m.id)).sort(ordena);
+  const semRevenda=claude.filter(m=>!/kodeo/i.test(m.id));
+  const lista=semRevenda.length?semRevenda:claude;
   const padraoTier={};
-  for(const m of claude){const t=td(m.id); if(t&&!padraoTier[t])padraoTier[t]=m.id;}
-  const porId={}; for(const m of claude) porId[m.id]=m;
+  for(const m of lista){const t=td(m.id); if(t&&!padraoTier[t])padraoTier[t]=m.id;}
+  const porId={}; for(const m of lista) porId[m.id]=m;
   
   const monta=(m)=>{
     const t=td(m.id);
-    const o={name:m.id,labelOverride:m.display_name||m.id};
+    const nome=(m.display_name||m.id).replace(/\s*\(kodeo\)\s*$/i,"").trim();
+    const o={name:m.id,labelOverride:nome};
     if(t){o.anthropicFamilyTier=t; if(padraoTier[t]===m.id)o.isFamilyDefault=true;}
     if((m.context_length||0)>=1000000)o.supports1m=true;
     return o;
   };
   
-  const modelos=claude.map(monta);
-  const padrao=padraoTier.opus||(claude[0]&&claude[0].id)||"";
+  const modelos=lista.map(monta);
+  const padrao=padraoTier.opus||(lista[0]&&lista[0].id)||"";
   
   const base=process.env.CAT_BASE||"";
   const chave=process.env.CAT_CHAVE||"";
@@ -377,6 +409,8 @@ def ordena(m):
             -versao(i), -(m.get("context_length") or 0), i)
 
 claude=sorted([m for m in ms if eh(m.get("id",""))], key=ordena)
+sem_revenda=[m for m in claude if not re.search(r"kodeo", m.get("id",""), re.I)]
+claude=sem_revenda if sem_revenda else claude
 padrao_tier={}
 for m in claude:
     t=td(m["id"])
@@ -384,7 +418,7 @@ for m in claude:
 
 modelos=[]
 for m in claude:
-    t=td(m["id"]); o={"name":m["id"],"labelOverride":m.get("display_name") or m["id"]}
+    t=td(m["id"]); o={"name":m["id"],"labelOverride":re.sub(r"\s*\(kodeo\)\s*$","",(m.get("display_name") or m["id"]),flags=re.I).strip()}
     if t:
         o["anthropicFamilyTier"]=t
         if padrao_tier.get(t)==m["id"]: o["isFamilyDefault"]=True
