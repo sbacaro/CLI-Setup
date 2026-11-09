@@ -513,6 +513,7 @@ BUSCA_PROVEDOR="${CLI_BUSCA_PROVEDOR:-}"
 BUSCA_CHAVE="${CLI_BUSCA_CHAVE:-}"
 GITHUB_CLIENT_ID="${CLI_GITHUB_CLIENT_ID:-}"
 EGRESS_MODE="${CLI_EGRESS:-padrao}"
+MCP_DIRS="${CLI_MCP_DIRS:-}"
 
 tela_desktop() { # 0 = seguir, 1 = voltar
   tela "4/$TOTAL  Desktop" 4
@@ -567,18 +568,31 @@ tela_desktop() { # 0 = seguir, 1 = voltar
   fi
   linha ""
 
+  # ── 4. MCP local ──────────────────────────────────────────────────────────
+  linha "${B}${W}MCP local (npx)${R}"
+  linha "${G}Filesystem, Memory e Sequential Thinking rodam como processo local.${R}"
+  linha "${G}Servidores oficiais @modelcontextprotocol, baixados pelo npm.${R}"
+  linha ""
+  if [ -n "$MCP_DIRS" ]; then
+    linha "  pastas do Filesystem: ${W}${MCP_DIRS}${R}"
+  else
+    linha "  ${G}Sem pastas, só Memory e Sequential Thinking entram.${R}"
+  fi
+  linha ""
+
   # ── 4. Egress ─────────────────────────────────────────────────────────────
   linha "${B}${W}Egress da sandbox${R}  ${G}atual: ${W}${EGRESS_MODE}${R}"
   linha "${G}Sem isso o Web Fetch e o shell dentro do Cowork não saem.${R}"
   linha ""
-  rodape "1:busca" "2:github" "3:egress" "enter:continuar" "←:voltar" "ctrl+c:sair"
+  rodape "1:busca" "2:github" "3:mcp local" "4:egress" "enter:continuar" "←:voltar" "ctrl+c:sair"
 
   while :; do
     k=$(tecla)
     case "$k" in
       1) _desktop_busca;;
       2) _desktop_github;;
-      3) _desktop_egress;;
+      3) _desktop_mcp_local;;
+      4) _desktop_egress;;
       enter) return 0;;
       left|b|B) return 1;;
       eof) cancela;;
@@ -641,6 +655,28 @@ _desktop_github() {
       space|up|down|left|right|esc) ;;
       eof) cursor_off; cancela;;
       *) id="$id$c";;
+    esac
+  done
+  cursor_off
+}
+
+_desktop_mcp_local() {
+  linha ""
+  linha "Pastas que o Filesystem pode ler (separadas por vírgula)."
+  linha "${G}Enter sem nada remove, e só Memory/Sequential entram.${R}"
+  local v="" c i
+  cursor_on
+  while :; do
+    limpa_linha; printf '%s    %s❯%s ' "$ESPACO" "$ACC_F" "$R"
+    printf '%s' "$v"
+    c=$(tecla)
+    case "$c" in
+      enter) MCP_DIRS="$v"; break;;
+      bs) v="${v%?}";;
+      space) v="$v ";;
+      up|down|left|right|esc) ;;
+      eof) cursor_off; cancela;;
+      *) v="$v$c";;
     esac
   done
   cursor_off
@@ -743,15 +779,18 @@ remover_claude_code() {
 
 # ── Claude Desktop ─────────────────────────────────────────────────────────
 cd_config_json() { claude_desktop_json "$BASE" "$CHAVE"; }
-# Gera a config com as três camadas que o app perde fora da assinatura Anthropic:
-# conectores embutidos, marketplace de skills oficial e egress.
+# Gera a config com as camadas que o app perde fora da assinatura Anthropic:
+# conectores embutidos, MCP local, marketplaces oficiais e egress.
 cd_config_json_completo() {
-  local mcp mk eg
-  mcp=$(desktop_mcp_builtin "$BUSCA_PROVEDOR" "$BUSCA_CHAVE" "$GITHUB_CLIENT_ID") || mcp="[]"
+  local mk eg ml
   mk=$(desktop_marketplaces_json 1 1) || mk="[]"
   eg=$(desktop_egress_json "$EGRESS_MODE") || eg="[]"
-  printf '%s' "$CATALOGO_JSON" | CAT_BASE="$BASE" CAT_CHAVE="$CHAVE" CAT_OPUS="$PADRAO_ID" \
-    CAT_MCP_BUILTIN="$mcp" CAT_MARKETPLACES="$mk" CAT_EGRESS="$eg" \
+  ml=$(desktop_mcp_local "$MCP_DIRS" 2>/dev/null) || ml="[]"
+  printf '%s' "$CATALOGO_JSON" | \
+    CAT_BASE="$BASE" CAT_CHAVE="$CHAVE" CAT_OPUS="$PADRAO_ID" \
+    CAT_MARKETPLACES="$mk" CAT_EGRESS="$eg" CAT_MCP_LOCAL="$ml" \
+    CAT_BUSCA_PROVEDOR="$BUSCA_PROVEDOR" CAT_BUSCA_CHAVE="$BUSCA_CHAVE" \
+    CAT_GITHUB_CLIENT_ID="$GITHUB_CLIENT_ID" \
     catalogo_gerar_claude
 }
 cd_escrever() {

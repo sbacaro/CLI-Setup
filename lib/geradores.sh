@@ -85,12 +85,36 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
   cfg.userPluginUploadsEnabled=true;
   cfg.isLocalDevMcpEnabled=true;
   cfg.mcpPersistentAlwaysAllowEnabled=true;
-  // Camadas que o app perde ao sair da assinatura Anthropic. Vêm prontas do
-  // lib/desktop.sh como JSON validado; se vazias, a chave não é gravada.
-  const mcp=(process.env.CAT_MCP_BUILTIN||"").trim();
-  if(mcp&&mcp!=="[]"){try{cfg.managedMcpServers=JSON.parse(mcp)}catch(e){}}
+  // Conectores embutidos no app (server: websearch|github). Só entra o que tem
+  // credencial. Montado aqui porque a junção com os locais precisa de JSON.
+  const bp=(process.env.CAT_BUSCA_PROVEDOR||"").trim();
+  const bk=(process.env.CAT_BUSCA_CHAVE||"").trim();
+  const gid=(process.env.CAT_GITHUB_CLIENT_ID||"").trim();
+  const mcp=[];
+  if(bp&&bk){
+    mcp.push({name:"Web search",server:"websearch",provider:bp,
+              headers:{Authorization:"Bearer "+bk},
+              toolPolicy:{web_search:"allow"}});
+  }
+  if(gid){
+    mcp.push({name:"GitHub",server:"github",clientId:gid,
+              toolPolicy:{merge_pull_request:"ask",delete_repository:"blocked",force_push:"blocked"}});
+  }
+  if(mcp.length) cfg.managedMcpServers=mcp;
+  // MCP locais via stdio (npx), já com caminho absoluto resolvido pelo bash.
+  const ml=(process.env.CAT_MCP_LOCAL||"").trim();
+  if(ml&&ml!=="[]"){
+    try{
+      const extra=JSON.parse(ml);
+      if(Array.isArray(extra)&&extra.length){
+        cfg.managedMcpServers=[...(cfg.managedMcpServers||[]),...extra];
+      }
+    }catch(e){}
+  }
+  // Marketplaces oficiais da Anthropic (allowedPluginMarketplaces).
   const mk=(process.env.CAT_MARKETPLACES||"").trim();
   if(mk&&mk!=="[]"){try{cfg.allowedPluginMarketplaces=JSON.parse(mk)}catch(e){}}
+  // Egress da sandbox do Cowork.
   const eg=(process.env.CAT_EGRESS||"").trim();
   if(eg&&eg!=="[]"){try{cfg.coworkEgressAllowedHosts=JSON.parse(eg)}catch(e){}}
   process.stdout.write(JSON.stringify(cfg,null,2)+"\n");
@@ -149,11 +173,25 @@ cfg.update({"chatTabEnabled":True,"coworkTabEnabled":True,
             "disableBundledSkills":False,"userPluginMarketplacesEnabled":True,
             "userPluginUploadsEnabled":True,"isLocalDevMcpEnabled":True,
             "mcpPersistentAlwaysAllowEnabled":True})
+# Conectores embutidos no app: só entra o que tem credencial.
+_bp=(os.environ.get("CAT_BUSCA_PROVEDOR") or "").strip()
+_bk=(os.environ.get("CAT_BUSCA_CHAVE") or "").strip()
+_gid=(os.environ.get("CAT_GITHUB_CLIENT_ID") or "").strip()
+_mcp=[]
 def _j(v):
     try: return json.loads(v) if v and v.strip() else None
     except Exception: return None
-_mcp=_j(os.environ.get("CAT_MCP_BUILTIN",""))
+if _bp and _bk:
+    _mcp.append({"name":"Web search","server":"websearch","provider":_bp,
+                 "headers":{"Authorization":"Bearer "+_bk},
+                 "toolPolicy":{"web_search":"allow"}})
+if _gid:
+    _mcp.append({"name":"GitHub","server":"github","clientId":_gid,
+                 "toolPolicy":{"merge_pull_request":"ask","delete_repository":"blocked","force_push":"blocked"}})
 if _mcp: cfg["managedMcpServers"]=_mcp
+_ml=_j(os.environ.get("CAT_MCP_LOCAL",""))
+if _ml:
+    cfg["managedMcpServers"]=cfg.get("managedMcpServers",[])+_ml
 _mk=_j(os.environ.get("CAT_MARKETPLACES",""))
 if _mk: cfg["allowedPluginMarketplaces"]=_mk
 _eg=_j(os.environ.get("CAT_EGRESS",""))
