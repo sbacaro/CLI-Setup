@@ -10,8 +10,49 @@ usar uma lista fixa**.
 |---|---|
 | macOS / Linux | `curl -fsSL https://raw.githubusercontent.com/sbacaro/CLI-Setup/main/instalar.sh \| CLI_KEY="ck_…" bash` |
 | macOS / Linux (sem a chave) | `curl -fsSL https://raw.githubusercontent.com/sbacaro/CLI-Setup/main/instalar.sh \| bash` |
+| Windows (PowerShell 7) | `.\instalar.ps1 -Chave "ck_…"` |
+| Windows (sem a chave) | `.\instalar.ps1` |
 
-Sem `CLI_KEY`, o **passo 1** do assistente pede a chave.
+Sem a chave, o **passo 1** do assistente pede.
+
+## Plataformas
+
+| Plataforma | Script | Como roda |
+|---|---|---|
+| macOS | `instalar.sh` | `bash` |
+| Linux | `instalar.sh` | `bash` |
+| Windows | `instalar.ps1` | PowerShell 7 (`pwsh`) |
+| Windows (WSL) | `instalar.sh` | `bash`, dentro da distro |
+
+O script PowerShell exige **PowerShell 7** (o `pwsh`), não o Windows PowerShell
+5.1 que vem no sistema. O motivo é concreto: `Invoke-WebRequest
+-SkipHttpErrorCheck`, que permite ler o status 401/403 da API sem virar
+exceção, existe só a partir do 7.0. No 5.1 a chave inválida derrubaria o
+assistente em vez de mostrar a mensagem.
+
+No Windows, três coisas mudam de lugar — o script já trata cada uma:
+
+| O quê | macOS / Linux | Windows |
+|---|---|---|
+| Claude Desktop 3P | `~/Library/Application Support/Claude-3p/` | `%LOCALAPPDATA%\Claude-3p\` |
+| Variáveis do Claude Code | bloco no `.zshrc` / `.bashrc` | ambiente do usuário (`setx`) |
+| Reinício do app | `osascript` + `open` | `Stop-Process` + `shell:AppsFolder` |
+
+O Codex, o ChatGPT Desktop e o OpenCode usam os mesmos caminhos nas três
+plataformas (`~/.codex/`, `~/.config/opencode/`), então não mudam.
+
+> No Windows o app do ChatGPT e o Claude Desktop são pacotes da Store: a
+> detecção usa `Get-AppxPackage`, porque não existe `.exe` num caminho fixo.
+
+### Sem interação
+
+Para provisionar uma máquina de uma vez (CI, imagem, onboarding):
+
+```powershell
+.\instalar.ps1 -NaoInterativo -Chave "ck_…"
+.\instalar.ps1 -NaoInterativo -Chave "ck_…" -Ferramentas "claude-code,opencode"
+.\instalar.ps1 -NaoInterativo -Desfazer -Chave "ck_…"
+```
 
 ## Os cinco passos
 
@@ -121,26 +162,48 @@ volta como estava: o `config.toml` original, o modelo anterior do OpenCode, o
 ## Testes
 
 ```sh
-bash testes/comportamento.sh              # com node
-JSON_TOOL=python3 bash testes/comportamento.sh   # com python
+# macOS / Linux
+bash testes/comportamento.sh
+JSON_TOOL=python3 bash testes/comportamento.sh   # com python em vez de node
 
 # confere cada chave do Claude Desktop contra a documentação oficial
 CLI_TEST_KEY=ck_… bash testes/chaves.sh
+
+# Windows / PowerShell
+pwsh -File testes/comportamento.ps1
+pwsh -File testes/comportamento.ps1 -Chave ck_…   # exercita o plano real
 ```
 
 O teste de chaves existe porque o app descarta em silêncio uma chave que não
 conhece: sem ele, uma chave inventada passaria como se estivesse configurada.
 
+A suíte do PowerShell usa `HOME` isolado e testa o código real — não uma cópia
+do comportamento. Os sete pontos: caminhos por plataforma, modelo padrão, tier
+ausente, coerência do Claude Desktop, formato V2 do OpenCode, preservação do
+JSON do usuário (inclusive arquivo corrompido, que não pode ser sobrescrito), e
+idempotência.
+
 ## Estrutura
 
 ```
-instalar.sh          assistente (5 telas)
+instalar.sh          assistente (5 telas) — macOS e Linux
+instalar.ps1         assistente (5 telas) — Windows
 lib/json.sh          leitura/escrita de JSON (node ou python)
 lib/catalogo.sh      consulta /v1/models e /v1/me
 lib/geradores.sh     monta a configuração de cada ferramenta
 lib/opencode.sh      formato do OpenCode V2
 lib/desktop.sh       conectores, marketplaces e egress do Claude Desktop
+ps/Plataforma.ps1    caminhos por sistema (a camada que o bash não tinha)
+ps/Json.ps1          JSON sem dependência externa
+ps/Catalogo.ps1      consulta /v1/models e /v1/me
+ps/Geradores.ps1     monta a configuração de cada ferramenta
+ps/Desktop.ps1       conectores, marketplaces e egress
+ps/Ui.ps1            teclado, moldura, logotipo, menus
 testes/              testes de comportamento e de chaves
 ```
+
+Os dois assistentes gravam exatamente a mesma configuração: o que muda é a
+linguagem e os caminhos de cada sistema. A saída do Claude Desktop é
+comparada chave por chave entre os dois.
 
 Licença MIT.
