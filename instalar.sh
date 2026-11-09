@@ -485,10 +485,34 @@ carregar_catalogo() {
   limpa_linha
   case "$json" in *'"data"'*) ;; *) CAT_FALHOU=1; return 1 ;; esac
   CATALOGO_JSON="$json"; CATALOGO_LIDO=1
+  # /v1/models lista o catálogo inteiro (inclui planos superiores). A lista do
+  # plano vem do /v1/me, campo "modelos" — é ela que filtra o que o usuário pode usar.
+  cat_plano_carregar "$CHAVE" || true
+  export CATALOGO_JSON CATALOGO_LIDO CAT_PLANO_IDS JSON_TOOL
   CAT_N=$(cat_contar); OPUS_ID=$(cat_melhor_tier opus)
   SONNET_ID=$(cat_melhor_tier sonnet); HAIKU_ID=$(cat_melhor_tier haiku)
   PADRAO_ID=$(cat_padrao_geral)
+  cat_resumo_plano
   [ -n "$CAT_N" ] && [ "$CAT_N" -gt 0 ] || { CAT_FALHOU=1; return 1; }
+  return 0
+}
+
+# cat_resumo_plano — quantos modelos o plano libera de fato, por família
+cat_resumo_plano() {
+  CAT_PLANO_N=0; CAT_PLANO_ANTHROPIC=0; CAT_PLANO_OPENAI=0
+  [ -z "${CAT_PLANO_IDS:-}" ] && { CAT_PLANO_N=$(cat_contar); return 0; }
+  local id fam
+  while IFS= read -r id; do
+    [ -z "$id" ] && continue
+    CAT_PLANO_N=$((CAT_PLANO_N+1))
+    fam=$(cat_familia "$id")
+    case "$fam" in
+      anthropic) CAT_PLANO_ANTHROPIC=$((CAT_PLANO_ANTHROPIC+1)) ;;
+      openai)    CAT_PLANO_OPENAI=$((CAT_PLANO_OPENAI+1)) ;;
+    esac
+  done <<EOF
+$CAT_PLANO_IDS
+EOF
   return 0
 }
 
@@ -504,13 +528,17 @@ tela_modelos() { # 0 = seguir, 1 = voltar
     rodape "enter:tentar" "←:voltar" "ctrl+c:sair"
     while :; do k=$(tecla); case "$k" in enter) return 0;; left) return 1;; esc) return 1;; esac; done
   fi
-  linha "${OK}✓${R} ${CAT_N} modelos no seu plano"
+  linha "${OK}✓${R} ${CAT_PLANO_N} modelos no seu plano"
+  linha ""
+  linha "${B}${W}O que cada app recebe:${R}"
+  linha "  ${G}Claude Code / Desktop${R}  ${CAT_PLANO_ANTHROPIC} modelos Anthropic"
+  linha "  ${G}ChatGPT / Codex${R}         ${CAT_PLANO_OPENAI} modelos OpenAI"
+  linha "  ${G}OpenCode${R}                ${CAT_PLANO_N} modelos (todos)"
   linha ""
   linha "${G}Padrão para começar:${R} ${W}${PADRAO_ID}${R}"
   linha ""
-  linha "${G}Cada ferramenta recebe a lista completa, com o contexto real de cada modelo.${R}"
-  linha "${G}Nenhum modelo é trocado por outro: se o plano não tem Sonnet, o atalho de${R}"
-  linha "${G}Sonnet não é criado — em vez de apontar para outro provedor.${R}"
+  linha "${G}Modelos de planos superiores ficam de fora: o catálogo da API lista tudo,${R}"
+  linha "${G}mas só os do seu plano respondem. Um deles devolveria 403.${R}"
   linha ""
   local atalhos
   atalhos=$(printf '%s' "${G}Atalhos no Claude Desktop:${R}"

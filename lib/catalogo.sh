@@ -46,6 +46,42 @@ catalogo_carregar() {
   CATALOGO_JSON=""; return 1
 }
 
+# ── Modelos que o plano realmente pode usar ────────────────────────────────
+# /v1/models lista TODOS os modelos do catálogo (22), inclusive os de planos
+# superiores: um deles responde 403 "está no Kodeo Ultra". A lista que vale é
+# a do /v1/me, campo "modelos". Sem esse filtro o configurador grava modelos
+# que o usuário não consegue chamar.
+cat_plano_carregar() { # CHAVE → 0 e grava CAT_PLANO_IDS (um id por linha)
+  local chave="$1" json
+  [ -n "${CAT_PLANO_IDS:-}" ] && return 0
+  json=$(curl -s -m 20 -A "cli-setup/1.0" "$BASE/v1/me" -H "x-api-key: $chave" 2>/dev/null)
+  CAT_PLANO_JSON="$json"
+  CAT_PLANO_IDS=""
+  case "$json" in *'"modelos"'*) ;; *) return 1;; esac
+  CAT_PLANO_IDS=$(printf '%s' "$json" | cat_extrair_modelos)
+  [ -n "$CAT_PLANO_IDS" ]
+}
+
+# cat_extrair_modelos — lê o JSON do /v1/me no stdin e imprime um id por linha
+cat_extrair_modelos() {
+  if [ "${JSON_TOOL:-}" = node ]; then
+    node -e 'let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{let d={};try{d=JSON.parse(t)}catch{process.exit(0)};const ms=Array.isArray(d.modelos)?d.modelos:[];process.stdout.write(ms.join("\n"))});'
+  else
+    python3 -c 'import sys,json
+try: d=json.load(sys.stdin)
+except Exception: raise SystemExit(0)
+ms=d.get("modelos") if isinstance(d.get("modelos"),list) else []
+sys.stdout.write("\n".join(str(m) for m in ms))'
+  fi
+}
+
+# cat_no_plano ID → 0 se o plano inclui esse modelo (vazio = não filtrar)
+cat_no_plano() {
+  local id="$1"
+  [ -z "${CAT_PLANO_IDS:-}" ] && return 0
+  printf '%s\n' "$CAT_PLANO_IDS" | grep -Fxq "$id"
+}
+
 # cat_ids → um id por linha, na ordem da API
 cat_ids() { cat_campo id; }
 
@@ -114,11 +150,13 @@ catalogo_escolher() {
   if [ "${JSON_TOOL:-}" = node ]; then
     node -e '
 const tier=process.argv[1];
+const plano=(process.env.CAT_PLANO_IDS||"").split("\n").map(s=>s.trim()).filter(Boolean);
 let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
   let d={};try{d=JSON.parse(t)}catch{process.exit(0)}
   const ms=Array.isArray(d.data)?d.data:[];
   const tierDe=i=>/opus/.test(i)?"opus":(/sonnet/.test(i)?"sonnet":(/haiku/.test(i)?"haiku":(/fable/.test(i)?"fable":(/mythos/.test(i)?"mythos":""))));
-  const cand=ms.filter(m=>tierDe(m.id)===tier);
+  // Só o que o plano libera: escolher um alias fora do plano geraria 403.
+  const cand=ms.filter(m=>tierDe(m.id)===tier && (!plano.length||plano.includes(m.id)));
   if(!cand.length){process.exit(0)}
   // versão: o maior número decimal no id (5.5 > 5); empate fica em 0
   const versao=i=>{const n=[...String(i).matchAll(/(\d+(?:\.\d+)?)/g)].map(x=>parseFloat(x[1]));return n.length?Math.max(...n):0};
@@ -135,8 +173,9 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
 });' "$tier"
   else
     python3 -c '
-import sys,json,re
+import sys,json,re,os
 tier=sys.argv[1]
+plano=[s.strip() for s in os.environ.get("CAT_PLANO_IDS","").split("\n") if s.strip()]
 try: d=json.load(sys.stdin)
 except Exception: raise SystemExit(0)
 ms=d.get("data") or []
@@ -147,7 +186,7 @@ def td(i):
 def versao(i):
     n=[float(x) for x in re.findall(r"\d+(?:\.\d+)?",str(i))]
     return max(n) if n else 0.0
-cand=[m for m in ms if td(m.get("id",""))==tier]
+cand=[m for m in ms if td(m.get("id",""))==tier and (not plano or m.get("id") in plano)]
 if cand:
     cand.sort(key=lambda m:(
         1 if "-kodeo" in m["id"] else 0,

@@ -36,10 +36,13 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
     ((b.context_length||0)-(a.context_length||0)) ||
     String(a.id).localeCompare(String(b.id));
   const claude=ms.filter(m=>ehClaude(m.id)).sort(ordena);
+  // Só modelos que o plano libera (o catálogo lista planos superiores também).
+  const plano=(process.env.CAT_PLANO_IDS||"").split("\n").map(s=>s.trim()).filter(Boolean);
+  const noPlano=plano.length?claude.filter(m=>plano.includes(m.id)):claude;
   // Sem aliases de revenda: "kodeo-opus-5.5" e "claude-opus-5.5-kodeo" duplicam
   // o mesmo modelo no seletor. O nome canônico ("claude-opus-5.5") já está lá.
-  const semRevenda=claude.filter(m=>!/kodeo/i.test(m.id));
-  const listaFinal=semRevenda.length?semRevenda:claude;
+  const semRevenda=noPlano.filter(m=>!/kodeo/i.test(m.id));
+  const listaFinal=semRevenda.length?semRevenda:noPlano;
   // o melhor de cada tier, pela mesma ordem acima
   const padraoTier={};
   for(const m of listaFinal){const t=td(m.id); if(t&&!padraoTier[t])padraoTier[t]=m.id;}
@@ -96,6 +99,8 @@ def ordena(m):
     return (1 if "-kodeo" in i else 0, 1 if i.startswith("kodeo-") else 0,
             -versao(i), -(m.get("context_length") or 0), i)
 claude=sorted([m for m in ms if eh(m.get("id",""))], key=ordena)
+plano_ids=[s.strip() for s in os.environ.get("CAT_PLANO_IDS","").split("\n") if s.strip()]
+if plano_ids: claude=[m for m in claude if m.get("id") in plano_ids]
 sem_revenda=[m for m in claude if not re.search(r"kodeo", m.get("id",""), re.I)]
 claude=sem_revenda if sem_revenda else claude
 padrao_tier={}
@@ -126,7 +131,11 @@ print(json.dumps(cfg,indent=2,ensure_ascii=False))
   fi
 }
 
-# ── OpenCode: todos os modelos, com contexto real ───────────────────────────
+# ── OpenCode: todos os modelos do plano, com contexto real ──────────────────
+# Regra do OpenCode: é o único app que recebe a lista inteira (todas as famílias),
+# porque o seletor dele mostra o provedor junto. Mas só os modelos que o plano
+# libera: o catálogo /v1/models lista planos superiores, e um deles responde
+# 403 "está no Kodeo Ultra" quando o usuário tenta usar.
 opencode_modelos_json() {
   printf '%s' "$CATALOGO_JSON" | catalogo_gerar_opencode
 }
@@ -134,16 +143,18 @@ opencode_modelos_json() {
 catalogo_gerar_opencode() {
   if [ "${JSON_TOOL:-}" = node ]; then
     node -e '
+const plano=(process.env.CAT_PLANO_IDS||"").split("\n").map(s=>s.trim()).filter(Boolean);
 let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
   let d={};try{d=JSON.parse(t)}catch{d={}}
   const ms=Array.isArray(d.data)?d.data:[];
   const out={};
   for(const m of ms){
     const id=m.id; if(!id)continue;
+    if(plano.length&&!plano.includes(id))continue;
     const ctx=m.context_length||m.max_input_tokens||200000;
     const saida=m.max_tokens||32000;
     // formato V2: o id do mapa é o id do modelo; modelID é o que vai ao provedor
-    const o={modelID:id,name:m.display_name||id,limit:{context:ctx,output:saida}};
+    const o={modelID:id,name:(m.display_name||id).replace(/\s*\(kodeo\)\s*$/i,"").trim(),limit:{context:ctx,output:saida}};
     const caps=m.capabilities||{};
     const entrada=[];
     if(caps.image_input&&caps.image_input.supported)entrada.push("image");
@@ -156,7 +167,8 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
 });'
   else
     python3 -c '
-import sys,json
+import sys,json,os,re
+plano=[s.strip() for s in os.environ.get("CAT_PLANO_IDS","").split("\n") if s.strip()]
 try: d=json.load(sys.stdin)
 except Exception: d={}
 ms=d.get("data") or []
@@ -164,7 +176,8 @@ out={}
 for m in ms:
     i=m.get("id")
     if not i: continue
-    o={"modelID":i,"name":m.get("display_name") or i,
+    if plano and i not in plano: continue
+    o={"modelID":i,"name":re.sub(r"\s*\(kodeo\)\s*$","",(m.get("display_name") or i),flags=re.I).strip(),
        "limit":{"context":m.get("context_length") or m.get("max_input_tokens") or 200000,
                 "output":m.get("max_tokens") or 32000}}
     caps=m.get("capabilities") or {}
@@ -227,7 +240,9 @@ catalogo_gerar_codex() {
   if [ "${JSON_TOOL:-}" = node ]; then
     node -e '
 const padrao=process.env.CAT_PADRAO||"";
-let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
+  // Lista real do plano, vinda do /v1/me. Sem ela, não filtra.
+  const plano=(process.env.CAT_PLANO_IDS||"").split("\n").map(s=>s.trim()).filter(Boolean);
+  let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
   let d={};try{d=JSON.parse(t)}catch{d={}}
   let ms=Array.isArray(d.models)?d.models:(Array.isArray(d.data)?d.data:[]);
   if(!ms.length){process.stdout.write("{\"models\":[]}\n");return;}
@@ -235,13 +250,17 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
   // 1. Só família OpenAI: o Codex/ChatGPT não deve receber Claude, Grok, GLM, DeepSeek, MiniMax.
   const ehOpenAI=i=>/^gpt|^codex|^o[0-9]|openai/i.test(i);
   ms=ms.filter(m=>ehOpenAI(id(m)));
-  // 2. Sem aliases de revenda (-kodeo / kodeo-): o nome canônico já está na lista.
+  // 2. Só modelos que o plano realmente libera (senão o app lista um modelo
+  //    que responde 403 "está no plano superior").
+  if(plano.length) ms=ms.filter(m=>plano.includes(id(m)));
+  // 3. Sem aliases de revenda (-kodeo / kodeo-): o nome canônico já está na lista.
   ms=ms.filter(m=>!/kodeo/i.test(id(m)));
   // 3. Nome comercial: o app remove o prefixo "GPT-" da família OpenAI. Usar espaço
   //    em vez de hífen preserva o nome inteiro no seletor ("GPT 5.5", não "5.5").
+  //    O app já acrescenta o provedor, então "(Kodeo)" no display_name vira ruído.
   ms=ms.map(m=>{
     if(typeof m.display_name==="string"){
-      m.display_name=m.display_name.replace(/^GPT-/i,"GPT ");
+      m.display_name=m.display_name.replace(/^GPT-/i,"GPT ").replace(/\s*\(kodeo\)\s*$/i,"").trim();
     }
     return m;
   });
@@ -256,15 +275,17 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
     python3 -c '
 import sys,json,os,re
 padrao=os.environ.get("CAT_PADRAO","")
+plano=[s.strip() for s in os.environ.get("CAT_PLANO_IDS","").split("\n") if s.strip()]
 try: d=json.load(sys.stdin)
 except Exception: d={}
 ms=d.get("models") if isinstance(d.get("models"),list) else (d.get("data") if isinstance(d.get("data"),list) else [])
 def ident(m): return m.get("slug") or m.get("id") or ""
 ms=[m for m in ms if re.match(r"^(gpt|codex|o[0-9]|openai)",ident(m),re.I)]
+if plano: ms=[m for m in ms if ident(m) in plano]
 ms=[m for m in ms if not re.search(r"kodeo",ident(m),re.I)]
 for m in ms:
     if isinstance(m.get("display_name"),str):
-        m["display_name"]=re.sub(r"^GPT-","GPT ",m["display_name"],flags=re.I)
+        m["display_name"]=re.sub(r"\s*\(kodeo\)\s*$","",re.sub(r"^GPT-","GPT ",m["display_name"],flags=re.I),flags=re.I).strip()
 if padrao:
     for i,m in enumerate(ms):
         if ident(m)==padrao:
@@ -307,8 +328,10 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
     String(a.id).localeCompare(String(b.id));
   
   const claude=ms.filter(m=>ehClaude(m.id)).sort(ordena);
-  const semRevenda=claude.filter(m=>!/kodeo/i.test(m.id));
-  const lista=semRevenda.length?semRevenda:claude;
+  const plano=(process.env.CAT_PLANO_IDS||"").split("\n").map(s=>s.trim()).filter(Boolean);
+  const noPlano=plano.length?claude.filter(m=>plano.includes(m.id)):claude;
+  const semRevenda=noPlano.filter(m=>!/kodeo/i.test(m.id));
+  const lista=semRevenda.length?semRevenda:noPlano;
   const padraoTier={};
   for(const m of lista){const t=td(m.id); if(t&&!padraoTier[t])padraoTier[t]=m.id;}
   const porId={}; for(const m of lista) porId[m.id]=m;
@@ -409,6 +432,8 @@ def ordena(m):
             -versao(i), -(m.get("context_length") or 0), i)
 
 claude=sorted([m for m in ms if eh(m.get("id",""))], key=ordena)
+plano_ids=[s.strip() for s in os.environ.get("CAT_PLANO_IDS","").split("\n") if s.strip()]
+if plano_ids: claude=[m for m in claude if m.get("id") in plano_ids]
 sem_revenda=[m for m in claude if not re.search(r"kodeo", m.get("id",""), re.I)]
 claude=sem_revenda if sem_revenda else claude
 padrao_tier={}
