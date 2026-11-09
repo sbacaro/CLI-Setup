@@ -85,6 +85,15 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
   cfg.userPluginUploadsEnabled=true;
   cfg.isLocalDevMcpEnabled=true;
   cfg.mcpPersistentAlwaysAllowEnabled=true;
+  // Features do app que a config 3P também controla. Sem elas o app fica
+  // funcional mas capado: sem projetos, sem tarefas agendadas, sem navegador
+  // embutido, sem manter a máquina acordada durante uma tarefa.
+  cfg.projectsEnabled=true;
+  cfg.scheduledTasksEnabled=true;
+  cfg.keepAwakeEnabled=true;
+  cfg.builtinBrowserEnabled=true;
+  cfg.quickEntryScreenshotsEnabled=true;
+  cfg.quickEntryFileSharingEnabled=true;
   // Conectores embutidos no app (server: websearch|github). Só entra o que tem
   // credencial. Montado aqui porque a junção com os locais precisa de JSON.
   const bp=(process.env.CAT_BUSCA_PROVEDOR||"").trim();
@@ -172,7 +181,12 @@ cfg.update({"chatTabEnabled":True,"coworkTabEnabled":True,
             "skillCreationEnabled":True,"skillScanningEnabled":True,
             "disableBundledSkills":False,"userPluginMarketplacesEnabled":True,
             "userPluginUploadsEnabled":True,"isLocalDevMcpEnabled":True,
-            "mcpPersistentAlwaysAllowEnabled":True})
+            "mcpPersistentAlwaysAllowEnabled":True,
+            # Features do app que a config 3P também controla.
+            "projectsEnabled":True,"scheduledTasksEnabled":True,
+            "keepAwakeEnabled":True,"builtinBrowserEnabled":True,
+            "quickEntryScreenshotsEnabled":True,
+            "quickEntryFileSharingEnabled":True})
 # Conectores embutidos no app: só entra o que tem credencial.
 _bp=(os.environ.get("CAT_BUSCA_PROVEDOR") or "").strip()
 _bk=(os.environ.get("CAT_BUSCA_CHAVE") or "").strip()
@@ -364,5 +378,18 @@ if padrao:
             break
 print(json.dumps({"models":ms},indent=2,ensure_ascii=False))
 '
+  fi
+}
+
+# catalogo_chaves — lê o JSON do stdin e imprime uma chave de topo por linha.
+# Usado pelo teste que confere as chaves contra a documentação oficial.
+catalogo_chaves() {
+  if [ "${JSON_TOOL:-}" = node ]; then
+    node -e 'let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{let d={};try{d=JSON.parse(t)}catch{return};Object.keys(d).forEach(k=>console.log(k))});'
+  else
+    python3 -c 'import sys,json
+try: d=json.load(sys.stdin)
+except Exception: raise SystemExit(0)
+for k in d: print(k)'
   fi
 }
