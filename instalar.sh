@@ -6,9 +6,7 @@
 #     curl -fsSL https://raw.githubusercontent.com/sbacaro/CLI-Setup/main/instalar.sh | CLI_KEY="ck_…" bash
 #   sem a chave (o configurador pede no passo 1):
 #     curl -fsSL https://raw.githubusercontent.com/sbacaro/CLI-Setup/main/instalar.sh | bash
-#   opções avançadas:
-#     CLI_FULL_DESKTOP=1      - Ativa modo completo para Claude Desktop (MCP, skills, plugins)
-#     CLI_DRY_RUN=1           - Simula sem aplicar
+#   opções:
 #     CLI_LINHAS=30 CLI_COLS=90 - Override dimensões do terminal
 #
 # O que ele faz: valida a chave na API, lê o catálogo de modelos do SEU plano e
@@ -26,53 +24,7 @@ BASE="${CLI_BASE:-https://api.kodeo.com.br}"
 NOME="CLI SETUP"
 MARCA_INI="# >>> kodeo >>>"; MARCA_FIM="# <<< kodeo <<<"
 
-# ── Cache e Logs ────────────────────────────────────────────────────────────
-CACHE_DIR="${CLI_CACHE_DIR:-$HOME/.config/cli-setup/cache}"
-LOG_DIR="${CLI_LOG_DIR:-$HOME/.config/cli-setup/logs}"
-DRY_RUN="${CLI_DRY_RUN:-0}"
-FULL_DESKTOP="${CLI_FULL_DESKTOP:-0}"
-
 # ── MCP Servers Habilitados ─────────────────────────────────────────────────
-MCP_SERVERS=""    # Lista de MCP servers selecionados (vírgula)
-EGRESS_MODE="padrao"  # minimo | padrao | completo
-MARKETPLACE_URL=""   # URL do marketplace de plugins (opcional)
-
-# ── Funções de Cache ─────────────────────────────────────────────────────────
-cache_init() {
-  mkdir -p "$CACHE_DIR" "$LOG_DIR" 2>/dev/null || true
-}
-
-cache_catalogo() {
-  # Retorna catálogo do cache se ainda válido (5 min) ou busca novo
-  local chave="$1" cache_file="$CACHE_DIR/catalogo-$chave.json" age max_age=300
-  [ -f "$cache_file" ] || return 1
-  age=$(($(date +%s) - $(stat -f %m "$cache_file" 2>/dev/null || echo 0)))
-  [ "$age" -lt "$max_age" ] && cat "$cache_file" && return 0
-  return 1
-}
-
-cache_salvar_catalogo() {
-  local chave="$1" json="$2" cache_file="$CACHE_DIR/catalogo-$chave.json"
-  mkdir -p "$CACHE_DIR" 2>/dev/null || return 1
-  printf '%s' "$json" >"$cache_file"
-}
-
-# ── Logs de Auditoria ────────────────────────────────────────────────────────
-log_audit() {
-  local action="$1" app="$2" detail="$3" ts
-  ts=$(date +%Y-%m-%dT%H:%M:%S)
-  mkdir -p "$LOG_DIR" 2>/dev/null || return 1
-  printf '%s\t%s\t%s\t%s\n' "$ts" "$action" "$app" "$detail" >>"$LOG_DIR/audit.log"
-}
-
-# ── Dry Run ─────────────────────────────────────────────────────────────────
-dry_run_msg() {
-  [ "$DRY_RUN" = "1" ] && printf '%s  %s[dry-run]%s %s\n' "$ESPACO" "$WARN" "$R" "$*"
-}
-
-dry_run_check() {
-  [ "$DRY_RUN" = "1" ] && return 0 || return 1
-}
 
 # ── estilo ─────────────────────────────────────────────────────────────────
 E=$'\033'
@@ -206,15 +158,15 @@ abertura() {
 }
 
 # ── moldura das telas ──────────────────────────────────────────────────────
-TOTAL=5
+TOTAL=4
 ETAPA=0
 etapas() {
   # a coluna encosta no bloco, não flutua no fim da tela
   local col=$((MARGEM+LARG+3)) i marca
   [ "$COLS" -ge $((col+ETAPAS_LARG)) ] || return 0
   printf '%s[3;%dH%sEtapas%s' "$E" "$col" "$G" "$R"
-  for i in 1 2 3 4 5; do
-    case "$i" in 1) marca="Chave";; 2) marca="Ferramentas";; 3) marca="Modelos";; 4) marca="Desktop";; 5) marca="Aplicar";; esac
+  for i in 1 2 3 4; do
+    case "$i" in 1) marca="Chave";; 2) marca="Ferramentas";; 3) marca="Modelos";; 4) marca="Aplicar";; esac
     if [ "$i" -lt "$ETAPA" ]; then
       printf '%s[%d;%dH%s✓%s %s%s%s' "$E" $((3+i)) "$col" "$OK" "$R" "$G" "$marca" "$R"
     elif [ "$i" -eq "$ETAPA" ]; then
@@ -301,21 +253,11 @@ if [ -z "$CLI_DIR" ]; then
     printf '    Verifique a internet, ou baixe o repositório inteiro e rode ./instalar.sh\n\n'
     exit 1
   fi
-  # Novas bibliotecas para Desktop completo
-  for f in mcp_templates desktop_completo; do
-    if ! curl -fsSL -m 30 "$CLI_RAW/lib/$f.sh" -o "$CLI_DIR/lib/$f.sh" 2>/dev/null; then
-      # Se não encontrar, usa versão inline mínima
-      : >"$CLI_DIR/lib/$f.sh"
-    fi
-  done
 fi
 . "$CLI_DIR/lib/json.sh"
 . "$CLI_DIR/lib/catalogo.sh"
 . "$CLI_DIR/lib/geradores.sh"
 . "$CLI_DIR/lib/opencode.sh"
-# Tenta carregar novas bibliotecas
-[ -s "$CLI_DIR/lib/mcp_templates.sh" ] && . "$CLI_DIR/lib/mcp_templates.sh" 2>/dev/null || true
-[ -s "$CLI_DIR/lib/desktop_completo.sh" ] && . "$CLI_DIR/lib/desktop_completo.sh" 2>/dev/null || true
 
 # ══ 1/4  CHAVE ════════════════════════════════════════════════════════════
 CHAVE="${CLI_KEY:-${KODEO_KEY:-}}"
@@ -552,111 +494,6 @@ tela_modelos() { # 0 = seguir, 1 = voltar
   while :; do k=$(tecla); case "$k" in enter) return 0;; left) return 1;; esc) return 1;; esac; done
 }
 
-# ══ 4/5  DESKTOP COMPLETO ══════════════════════════════════════════════════
-MCP_OPCOES=("filesystem" "github" "brave-search" "memory" "slack" "postgres" "sqlite" "aws" "sequential-thinking")
-MCP_NOMES=("Filesystem" "GitHub" "Brave Search" "Memory" "Slack" "PostgreSQL" "SQLite" "AWS" "Seq. Thinking")
-MCP_SEL=(0 0 0 0 0 0 0 0 0)
-
-tela_desktop_completo() { # 0 = seguir, 1 = voltar
-  tela "4/$TOTAL  Desktop" 4
-  linha "${B}${W}Passo 4 de $TOTAL — Claude Desktop completo.${R}"
-  linha ""
-  linha "O Claude Desktop 3P com gateway vem vazio: sem MCP, sem skills, sem plugins."
-  linha "Esta etapa adiciona tudo o que a versão oficial da Anthropic oferece."
-  linha ""
-  
-  # Detectar se Desktop está selecionado
-  local desktop_ativo=0
-  local i
-  for i in 0 1 2 3; do
-    if [ "$i" -eq 1 ] && [ "${SEL[$i]}" -eq 1 ]; then desktop_ativo=1; fi
-  done
-  
-  if [ "$desktop_ativo" -eq 0 ]; then
-    linha "${G}Claude Desktop não está selecionado. Pulando esta etapa.${R}"
-    linha ""
-    rodape "enter:continuar" "←:voltar" "ctrl+c:sair"
-    while :; do k=$(tecla); case "$k" in enter) return 0;; left) return 1;; esc) return 1;; esac; done
-    return 0
-  fi
-  
-  linha "${B}${W}MCP Servers${R}"
-  linha "${G}Selecione os servidores MCP que deseja ativar:${R}"
-  linha ""
-  
-  # Configuração automática via variável de ambiente
-  if [ "$FULL_DESKTOP" -eq 1 ]; then
-    linha "${ACC_F}Modo automático ativado (CLI_FULL_DESKTOP=1)${R}"
-    linha "${G}Usando: filesystem,github,brave-search${R}"
-    MCP_SERVERS="filesystem,github,brave-search"
-    rodape "enter:continuar" "←:voltar" "ctrl+c:sair"
-    while :; do k=$(tecla); case "$k" in enter) return 0;; left) return 1;; esc) return 1;; esac; done
-    return 0
-  fi
-  
-  local n=${#MCP_OPCOES[@]} cur=0 k
-  rodape "↑↓:mover" "espaço:marcar" "enter:continuar" "←:voltar" "a:todos" "ctrl+c:sair"
-  
-  desenha_mcp() {
-    for ((i=0;i<n;i++)); do
-      local pre="  " caixa nome="${MCP_NOMES[$i]}"
-      [ "$i" -eq "$cur" ] && pre="${ACC_F}❯${R} "
-      if [ "${MCP_SEL[$i]}" -eq 1 ]; then caixa="${ACC_F}[x]${R}"; else caixa="${G}[ ]${R}"; fi
-      local desc=""
-      case "$i" in
-        0) desc="Acesso a arquivos locais" ;;
-        1) desc="Repositórios, issues, PRs" ;;
-        2) desc="Busca na web" ;;
-        3) desc="Memória persistente" ;;
-        4) desc="Workspace Slack" ;;
-        5) desc="Banco PostgreSQL" ;;
-        6) desc="Banco SQLite" ;;
-        7) desc="AWS: S3, EC2, Lambda" ;;
-        8) desc="Raciocínio avançado" ;;
-      esac
-      limpa_linha
-      printf '%s  %s%s %s%s%*s%s%s%s%s\n' "$ESPACO" "$pre" "$caixa" "$W" "$nome" $((16-${#nome})) '' "$G" "$desc" "$R"
-    done
-  }
-  desenha_mcp
-  while :; do
-    k=$(tecla)
-    case "$k" in
-      up|k) cur=$(( (cur+n-1) % n ));;
-      down|j) cur=$(( (cur+1) % n ));;
-      space) MCP_SEL[$cur]=$((1-MCP_SEL[$cur]));;
-      a|A) for ((i=0;i<n;i++)); do MCP_SEL[$i]=1; done;;
-      left|b|B) return 1;;
-      enter)
-        # Construir string de seleção
-        MCP_SERVERS=""
-        for ((i=0;i<n;i++)); do
-          [ "${MCP_SEL[$i]}" -eq 1 ] && MCP_SERVERS="${MCP_SERVERS}${MCP_SERVERS:+,}${MCP_OPCOES[$i]}"
-        done
-        # Egress mode
-        linha ""
-        linha "${B}${W}Egress allowlist:${R}"
-        linha "${G}Quais domínios o Cowork pode acessar?${R}"
-        linha ""
-        rodape "1:mínimo" "2:padrão(★)" "3:completo" "enter:padrão" "←:voltar"
-        while :; do
-          k=$(tecla)
-          case "$k" in
-            1) EGRESS_MODE="minimo"; break ;;
-            2) EGRESS_MODE="padrao"; break ;;
-            3) EGRESS_MODE="completo"; break ;;
-            enter|eof) EGRESS_MODE="padrao"; break ;;
-            left|b|B) return 1 ;;
-          esac
-        done
-        # se voltou do egress sem escolha, continua na tela de MCP
-        MCP_FINAL="${MCP_SERVERS}"
-        return 0 ;;
-    esac
-    printf '%s[%dA' "$E" "$n"; desenha_mcp
-  done
-}
-
 # ══ 4/4  APLICAR ══════════════════════════════════════════════════════════
 FALHAS=0
 passo() { # texto, comando…
@@ -738,12 +575,6 @@ remover_claude_code() {
 
 # ── Claude Desktop ─────────────────────────────────────────────────────────
 cd_config_json() { claude_desktop_json "$BASE" "$CHAVE"; }
-cd_config_json_completo() {
-  # Gera config completa com MCP servers, skills, plugins e egress
-  printf '%s' "$CATALOGO_JSON" | CAT_BASE="$BASE" CAT_CHAVE="$CHAVE" CAT_OPUS="$PADRAO_ID" \
-    CAT_MCP="$MCP_SERVERS" CAT_EGRESS="$EGRESS_MODE" CAT_MARKETPLACE="$MARKETPLACE_URL" \
-    catalogo_gerar_claude_completo
-}
 cd_escrever() {
   local dir; dir=$(pasta_3p); local lib="$dir/configLibrary"; mkdir -p "$lib" || return 1
   # Sem catálogo, a config sairia com inferenceModels vazio e o app ignoraria tudo.
@@ -755,15 +586,7 @@ cd_escrever() {
     local ant; ant=$(grep -o '"appliedId": *"[^"]*"' "$lib/_meta.json" | sed 's/.*: *"//; s/"$//')
     [ -n "$ant" ] && rm -f "$lib/$ant.json"; rm -f "$lib/_meta.json"
   fi
-  # Sempre usa a config completa: o Desktop 3P precisa de capabilities (skills,
-  # plugins, tabs) mesmo sem MCP — senão o app fica cru, como se não estivesse
-  # configurado. A lista de MCP pode estar vazia.
-  local config_json
-  if type catalogo_gerar_claude_completo >/dev/null 2>&1; then
-    config_json=$(cd_config_json_completo)
-  else
-    config_json=$(cd_config_json)
-  fi
+  local config_json; config_json=$(cd_config_json)
   ( umask 077; printf '%s' "$config_json" >"$lib/$id.json.cli-tmp" ) && mv "$lib/$id.json.cli-tmp" "$lib/$id.json" || return 1
   ( umask 077; printf '{\n  "appliedId": "%s",\n  "entries": [{ "id": "%s", "name": "Kodeo" }]\n}\n' "$id" "$id" >"$lib/_meta.json.cli-tmp" ) \
     && mv "$lib/_meta.json.cli-tmp" "$lib/_meta.json"
@@ -795,14 +618,6 @@ aplicar_claude_desktop() {
   passo "Configuração guiada (modelos + atalhos) em Claude-3p/configLibrary" cd_escrever
   passo "deploymentMode = 3p" cd_modo
   passo "Modo desenvolvedor (allowDevTools)" cd_devtools
-  
-  # Info sobre Desktop completo
-  if [ -n "$MCP_SERVERS" ] && [ "$MCP_SERVERS" != "null" ]; then
-    printf '%s    %s%s%s MCP servers: %s%s%s\n' "$ESPACO" "$B" "$W" "$R" "$ACC_F" "$MCP_SERVERS" "$R"
-    printf '%s    %s%s%s Skills e plugins: %s%s%s\n' "$ESPACO" "$B" "$W" "$R" "$ACC_F" "habilitados" "$R"
-    printf '%s    %s%s%s Egress: %s%s%s\n' "$ESPACO" "$B" "$W" "$R" "$ACC_F" "$EGRESS_MODE" "$R"
-  fi
-  
   passo "Reiniciar o Claude (se estiver aberto)" cd_reiniciar
 }
 
@@ -967,23 +782,16 @@ tela_aplicar() {
 }
 
 tela_resumo() {
-  tela "5/$TOTAL  Pronto" 5
+  tela "4/$TOTAL  Pronto" 4
   local m="${CHAVE:0:9}…${CHAVE: -4}" l="" l2="" x
   for x in "${FEITAS[@]+"${FEITAS[@]}"}"; do l="$l${l:+, }$x"; done
   for x in "${REMOVIDAS[@]+"${REMOVIDAS[@]}"}"; do l2="$l2${l2:+, }$x"; done
   caixa_topo "Pronto"
   caixa_linha "" 0
   caixa_linha "${G}Chave          $R$m" $((15+${#m}))
-  caixa_linha "${G}Modelos        $R$CAT_N do plano  ·  padrão ${W}$PADRAO_ID$R" $((15+${#PADRAO_ID}+20))
+  caixa_linha "${G}Modelos        $R$CAT_PLANO_N do plano  ·  padrão ${W}$PADRAO_ID$R" $((15+${#PADRAO_ID}+20))
   [ -n "$l" ]  && caixa_linha "${G}Configuradas   $R$l" $((15+${#l}))
   [ -n "$l2" ] && caixa_linha "${G}Desconfiguradas $R$l2" $((16+${#l2}))
-  
-  # Info Desktop completo
-  if [ -n "$MCP_SERVERS" ] && [ "$MCP_SERVERS" != "null" ]; then
-    caixa_linha "${G}Desktop        $R${W}completo$R · ${G}MCP:$R $MCP_SERVERS" $((15+${#MCP_SERVERS}+20))
-    caixa_linha "${G}               $R${G}Egress:$R $EGRESS_MODE" $((15+${#EGRESS_MODE}+15))
-  fi
-  
   caixa_linha "" 0
   if [ "$FALHAS" -gt 0 ]; then caixa_linha "${ERR}${FALHAS} passo(s) falharam$R — veja acima." $(( ${#FALHAS}+40 ))
   elif [ -n "$l" ]; then caixa_linha "Abra um terminal novo e use as ferramentas." 42
@@ -991,9 +799,6 @@ tela_resumo() {
   caixa_fundo
   if [ -n "$l" ] && [ $((LINHAS)) -ge 20 ]; then
     printf '%s\n%s  %sAbra um terminal novo para o shell ler o bloco novo.%s\n' "$ESPACO" "$ESPACO" "$G" "$R"
-    if [ -n "$MCP_SERVERS" ] && [ "$MCP_SERVERS" != "null" ]; then
-      printf '%s\n%s  %sClaude Desktop: habilite os MCP servers em %sDeveloper > Configure Third-Party Inference > Connectors%s\n' "$ESPACO" "$ESPACO" "$W" "$ACC_F" "$R"
-    fi
   fi
   rodape "enter:sair"
   local k; while :; do k=$(tecla); case "$k" in enter|q|Q|eof) break;; esac; done
@@ -1008,17 +813,6 @@ if chave_ok "$CHAVE"; then CHAVE_DO_COMANDO=1; tela_chave_do_comando; fi
 while :; do
   [ "$CHAVE_DO_COMANDO" -eq 0 ] && tela_chave
   tela_ferramentas || continue
-  tela_modelos || continue
-  
-  # Etapa 4: Desktop completo (só se Claude Desktop está selecionado)
-  desktop_ativo=0
-  for i in 0 1 2 3; do
-    if [ "$i" -eq 1 ] && [ "${SEL[$i]}" -eq 1 ]; then desktop_ativo=1; fi
-  done
-  if [ "$desktop_ativo" -eq 1 ]; then
-    tela_desktop_completo || continue
-  fi
-  
-  break
+  tela_modelos && break
 done
 tela_aplicar

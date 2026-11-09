@@ -7,12 +7,11 @@
 # Regra de ouro: nenhum modelo é inventado aqui. Tudo vem de /v1/models, e o padrão é
 # escolhido por critério explícito (tier certo, contexto maior, id canônico primeiro).
 
-# ── Claude Desktop: inferenceModels ─────────────────────────────────────────
-# O app só monta o seletor a partir de /v1/models se o id "parecer Claude", e os atalhos
-# de tier (Opus/Sonnet/Haiku) só aparecem com inferenceModels explícito. Então listamos
-# todos os modelos, marcando o tier e o padrão de cada tier.
-#
-# Saída: o conteúdo de um arquivo do configLibrary, pronto para gravar.
+# ── Claude Desktop: config do Claude Desktop 3P ────────────────────────────
+# Chaves conferidas contra docs oficiais (claude.com/docs/third-party/claude-desktop/configuration).
+# Não existe "codeTabEnabled": o Code é ligado por "isClaudeCodeForDesktopEnabled".
+# Não existe "pluginMarketplaces": o correto é "allowedPluginMarketplaces" (lista de
+# URLs de marketplace). Nada de MCP remoto aqui: sem URL verificada, não se inventa.
 claude_desktop_json() { # BASE CHAVE → JSON
   local base="$1" chave="$2"
   printf '%s' "$CATALOGO_JSON" | CAT_BASE="$base" CAT_CHAVE="$chave" CAT_OPUS="$OPUS_ID" catalogo_gerar_claude
@@ -27,7 +26,6 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
   const ms=Array.isArray(d.data)?d.data:[];
   const td=i=>/opus/.test(i)?"opus":(/sonnet/.test(i)?"sonnet":(/haiku/.test(i)?"haiku":(/fable/.test(i)?"fable":(/mythos/.test(i)?"mythos":""))));
   const ehClaude=i=>/claude|anthropic|opus|fable|sonnet|haiku|mythos/i.test(i);
-  // o mesmo critério de cat_melhor_tier: canônico, sem revenda, maior versão, maior contexto
   const versao=i=>{const n=[...String(i).matchAll(/(\d+(?:\.\d+)?)/g)].map(x=>parseFloat(x[1]));return n.length?Math.max(...n):0};
   const ordena=(a,b)=>
     ((/-kodeo/.test(a.id)?1:0)-(/-kodeo/.test(b.id)?1:0)) ||
@@ -43,7 +41,6 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
   // o mesmo modelo no seletor. O nome canônico ("claude-opus-5.5") já está lá.
   const semRevenda=noPlano.filter(m=>!/kodeo/i.test(m.id));
   const listaFinal=semRevenda.length?semRevenda:noPlano;
-  // o melhor de cada tier, pela mesma ordem acima
   const padraoTier={};
   for(const m of listaFinal){const t=td(m.id); if(t&&!padraoTier[t])padraoTier[t]=m.id;}
   const porId={};
@@ -51,7 +48,6 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
 
   const monta=(m)=>{
     const t=td(m.id);
-    // Nome limpo para o seletor: o app já mostra o provedor, então "(Kodeo)" é ruído.
     const nome=(m.display_name||m.id).replace(/\s*\(kodeo\)\s*$/i,"").trim();
     const o={name:m.id,labelOverride:nome};
     if(t){
@@ -63,22 +59,34 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
   };
   const modelos=listaFinal.map(monta);
 
-  // padrão global: o Opus do plano, senão o primeiro Claude
   const padrao=opus||padraoTier.opus||(listaFinal[0]&&listaFinal[0].id)||"";
   const cfg={
     inferenceProvider:"gateway",
     inferenceCredentialKind:"static",
     inferenceGatewayBaseUrl:base,
     inferenceGatewayApiKey:chave,
+    inferenceGatewayAuthScheme:"x-api-key",
     modelDiscoveryEnabled:false,
     inferenceModels:modelos
   };
-  // O primeiro item da lista é o modelo inicial do app
   if(padrao&&porId[padrao]){
     cfg.inferenceModels=[monta(porId[padrao]),...modelos.filter(o=>o.name!==padrao)];
   }
+  // Capabilities: chaves reais do app. O Code é ligado por
+  // isClaudeCodeForDesktopEnabled, não por um "codeTabEnabled" inventado.
+  cfg.chatTabEnabled=true;
+  cfg.coworkTabEnabled=true;
+  cfg.isClaudeCodeForDesktopEnabled=true;
+  cfg.autoModeEnabled=true;
+  cfg.skillCreationEnabled=true;
+  cfg.skillScanningEnabled=true;
+  cfg.disableBundledSkills=false;
+  cfg.userPluginMarketplacesEnabled=true;
+  cfg.userPluginUploadsEnabled=true;
+  cfg.isLocalDevMcpEnabled=true;
+  cfg.mcpPersistentAlwaysAllowEnabled=true;
   process.stdout.write(JSON.stringify(cfg,null,2)+"\n");
-});' 
+});'
   else
     python3 -c '
 import sys,json,os,re
@@ -118,6 +126,7 @@ for m in claude:
 padrao=opus or padrao_tier.get("opus") or (modelos[0]["name"] if modelos else "")
 cfg={"inferenceProvider":"gateway","inferenceCredentialKind":"static",
      "inferenceGatewayBaseUrl":base,"inferenceGatewayApiKey":chave,
+     "inferenceGatewayAuthScheme":"x-api-key",
      "modelDiscoveryEnabled":False,"inferenceModels":modelos}
 if padrao:
     nome={o["name"]:o for o in modelos}
@@ -126,10 +135,17 @@ if padrao:
         prim["anthropicFamilyTier"]=td(padrao); prim["isFamilyDefault"]=True
     if prim.get("supports1m") is None and (nome.get(padrao,{}).get("supports1m")): prim["supports1m"]=True
     cfg["inferenceModels"]=[prim]+[o for o in modelos if o["name"]!=padrao]
+cfg.update({"chatTabEnabled":True,"coworkTabEnabled":True,
+            "isClaudeCodeForDesktopEnabled":True,"autoModeEnabled":True,
+            "skillCreationEnabled":True,"skillScanningEnabled":True,
+            "disableBundledSkills":False,"userPluginMarketplacesEnabled":True,
+            "userPluginUploadsEnabled":True,"isLocalDevMcpEnabled":True,
+            "mcpPersistentAlwaysAllowEnabled":True})
 print(json.dumps(cfg,indent=2,ensure_ascii=False))
 '
   fi
 }
+
 
 # ── OpenCode: todos os modelos do plano, com contexto real ──────────────────
 # Regra do OpenCode: é o único app que recebe a lista inteira (todas as famílias),
@@ -292,214 +308,6 @@ if padrao:
             if i>0: ms.insert(0,ms.pop(i))
             break
 print(json.dumps({"models":ms},indent=2,ensure_ascii=False))
-'
-  fi
-}
-
-# ── Claude Desktop Completo: modelos + MCP + skills + plugins + egress ──────
-# Versão expandida de claude_desktop_json que inclui:
-#   - Todas as capabilities (chat, cowork, code tabs)
-#   - Skills habilitadas
-#   - Plugins e marketplaces
-#   - MCP servers gerenciados
-#   - Egress allowlist
-catalogo_gerar_claude_completo() {
-  local mcp_servers="${CAT_MCP:-}" egress_mode="${CAT_EGRESS:-padrao}" marketplace="${CAT_MARKETPLACE:-}"
-  
-  if [ "${JSON_TOOL:-}" = node ]; then
-    node -e '
-const mcpServersArg="'"$mcp_servers"'";
-const egressArg="'"$egress_mode"'";
-const marketplaceArg="'"$marketplace"'";
-
-let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
-  let d={};try{d=JSON.parse(t)}catch{d={}}
-  const ms=Array.isArray(d.data)?d.data:[];
-  
-  // Ordenação padrão
-  const td=i=>i.match(/opus/)?"opus":(i.match(/sonnet/)?"sonnet":(i.match(/haiku/)?"haiku":(i.match(/fable/)?"fable":"")));
-  const ehClaude=i=>/claude|anthropic|opus|fable|sonnet|haiku/i.test(i);
-  const versao=i=>{const n=[...String(i).matchAll(/(\d+(?:\.\d+)?)/g)].map(x=>parseFloat(x[1]));return n.length?Math.max(...n):0};
-  const ordena=(a,b)=>
-    ((/-kodeo/.test(a.id)?1:0)-(/-kodeo/.test(b.id)?1:0)) ||
-    ((/^kodeo-/.test(a.id)?1:0)-(/^kodeo-/.test(b.id)?1:0)) ||
-    (versao(b.id)-versao(a.id)) ||
-    ((b.context_length||0)-(a.context_length||0)) ||
-    String(a.id).localeCompare(String(b.id));
-  
-  const claude=ms.filter(m=>ehClaude(m.id)).sort(ordena);
-  const plano=(process.env.CAT_PLANO_IDS||"").split("\n").map(s=>s.trim()).filter(Boolean);
-  const noPlano=plano.length?claude.filter(m=>plano.includes(m.id)):claude;
-  const semRevenda=noPlano.filter(m=>!/kodeo/i.test(m.id));
-  const lista=semRevenda.length?semRevenda:noPlano;
-  const padraoTier={};
-  for(const m of lista){const t=td(m.id); if(t&&!padraoTier[t])padraoTier[t]=m.id;}
-  const porId={}; for(const m of lista) porId[m.id]=m;
-  
-  const monta=(m)=>{
-    const t=td(m.id);
-    const nome=(m.display_name||m.id).replace(/\s*\(kodeo\)\s*$/i,"").trim();
-    const o={name:m.id,labelOverride:nome};
-    if(t){o.anthropicFamilyTier=t; if(padraoTier[t]===m.id)o.isFamilyDefault=true;}
-    if((m.context_length||0)>=1000000)o.supports1m=true;
-    return o;
-  };
-  
-  const modelos=lista.map(monta);
-  const padrao=padraoTier.opus||(lista[0]&&lista[0].id)||"";
-  
-  const base=process.env.CAT_BASE||"";
-  const chave=process.env.CAT_CHAVE||"";
-  const cfg={
-    inferenceProvider:"gateway",
-    inferenceCredentialKind:"static",
-    inferenceGatewayBaseUrl:base,
-    inferenceGatewayApiKey:chave,
-    modelDiscoveryEnabled:false,
-    inferenceModels:modelos
-  };
-  
-  if(padrao&&porId[padrao]){
-    cfg.inferenceModels=[monta(porId[padrao]),...modelos.filter(o=>o.name!==padrao)];
-  }
-  
-  // Capabilities completas
-  cfg.chatTabEnabled=true;
-  cfg.coworkTabEnabled=true;
-  cfg.codeTabEnabled=true;
-  cfg.autoModeEnabled=true;
-  cfg.skillCreationEnabled=true;
-  cfg.skillScanningEnabled=true;
-  cfg.disableBundledSkills=false;
-  cfg.userPluginMarketplacesEnabled=true;
-  cfg.userPluginUploadsEnabled=true;
-  cfg.isLocalDevMcpEnabled=true;
-  cfg.mcpPersistentAlwaysAllowEnabled=true;
-  
-  // Egress
-  const egressMinimo=["github.com","api.github.com"];
-  const egressPadrao=["github.com","api.github.com","pypi.org","registry.npmjs.org","npmjs.org","*.github.com","*.githubusercontent.com","github.dev"];
-  const egressCompleto=["github.com","api.github.com","pypi.org","registry.npmjs.org","npmjs.org","*.github.com","*.githubusercontent.com","github.dev","gitlab.com","gitlab.org","bitbucket.org","docker.io"];
-  
-  let egress=egressPadrao;
-  if(egressArg==="minimo") egress=egressMinimo;
-  else if(egressArg==="completo") egress=egressCompleto;
-  cfg.coworkEgressAllowedHosts=egress;
-  
-  // Marketplace
-  if(marketplaceArg) cfg.pluginMarketplaces=[marketplaceArg];
-  
-  // MCP servers
-  if(mcpServersArg&&mcpServersArg!=="[]"&&mcpServersArg!==""&&mcpServersArg!=="null"){
-    const mcpServers=[
-      {name:"filesystem",description:"Access and manage local files",transport:"streamable-http",url:"https://mcp.filesystem.example.com/sse",headers:{}},
-      {name:"github",description:"GitHub API integration",transport:"streamable-http",url:"https://mcp.github.com/sse",headers:{}},
-      {name:"brave-search",description:"Web search using Brave Search API",transport:"streamable-http",url:"https://api.search.kodeo.com.br/mcp/sse",headers:{}},
-      {name:"memory",description:"Persistent memory and context management",transport:"streamable-http",url:"https://mcp.memory.example.com/sse",headers:{}},
-      {name:"slack",description:"Slack workspace integration",transport:"streamable-http",url:"https://mcp.slack.example.com/sse",headers:{}},
-      {name:"postgres",description:"PostgreSQL database access",command:"npx",args:["-y","@modelcontextprotocol/server-postgres"],env:{}}
-    ];
-    const selected=mcpServersArg.split(",").map(s=>s.trim()).filter(Boolean);
-    const filtered=mcpServers.filter(s=>selected.includes(s.name));
-    if(filtered.length>0) cfg.managedMcpServers=filtered;
-  }
-  
-  process.stdout.write(JSON.stringify(cfg,null,2)+"\n");
-});'
-  else
-    python3 -c '
-import sys,json,os,re
-mcp_arg="'"$mcp_servers"'"
-egress_arg="'"$egress_mode"'"
-marketplace_arg="'"$marketplace"'"
-
-try: d=json.load(sys.stdin)
-except: d={}
-ms=d.get("data") or []
-
-def td(i):
-    for t in ("opus","sonnet","haiku","fable"):
-        if t in i: return t
-    return ""
-
-def eh(i): return bool(re.search(r"claude|anthropic|opus|fable|sonnet|haiku",i,re.I))
-def versao(i):
-    n=[float(x) for x in re.findall(r"\d+(?:\.\d+)?",str(i))]
-    return max(n) if n else 0.0
-def ordena(m):
-    i=m.get("id","")
-    return (1 if "-kodeo" in i else 0, 1 if i.startswith("kodeo-") else 0,
-            -versao(i), -(m.get("context_length") or 0), i)
-
-claude=sorted([m for m in ms if eh(m.get("id",""))], key=ordena)
-plano_ids=[s.strip() for s in os.environ.get("CAT_PLANO_IDS","").split("\n") if s.strip()]
-if plano_ids: claude=[m for m in claude if m.get("id") in plano_ids]
-sem_revenda=[m for m in claude if not re.search(r"kodeo", m.get("id",""), re.I)]
-claude=sem_revenda if sem_revenda else claude
-padrao_tier={}
-for m in claude:
-    t=td(m["id"])
-    if t and t not in padrao_tier: padrao_tier[t]=m["id"]
-
-modelos=[]
-for m in claude:
-    t=td(m["id"]); o={"name":m["id"],"labelOverride":re.sub(r"\s*\(kodeo\)\s*$","",(m.get("display_name") or m["id"]),flags=re.I).strip()}
-    if t:
-        o["anthropicFamilyTier"]=t
-        if padrao_tier.get(t)==m["id"]: o["isFamilyDefault"]=True
-    if (m.get("context_length") or 0)>=1000000: o["supports1m"]=True
-    modelos.append(o)
-
-padrao=padrao_tier.get("opus") or (modelos[0]["name"] if modelos else "")
-base=os.environ.get("CAT_BASE","");chave=os.environ.get("CAT_CHAVE","")
-
-cfg={"inferenceProvider":"gateway","inferenceCredentialKind":"static",
-     "inferenceGatewayBaseUrl":base,"inferenceGatewayApiKey":chave,
-     "modelDiscoveryEnabled":False,"inferenceModels":modelos}
-
-if padrao:
-    nome={o["name"]:o for o in modelos}
-    prim={"name":padrao,"labelOverride":(nome.get(padrao,{}).get("labelOverride") or padrao)}
-    if td(padrao):
-        prim["anthropicFamilyTier"]=td(padrao); prim["isFamilyDefault"]=True
-    if prim.get("supports1m") is None and (nome.get(padrao,{}).get("supports1m")): prim["supports1m"]=True
-    cfg["inferenceModels"]=[prim]+[o for o in modelos if o["name"]!=padrao]
-
-# Capabilities
-cfg.update({
-    "chatTabEnabled":True,"coworkTabEnabled":True,"codeTabEnabled":True,
-    "autoModeEnabled":True,"skillCreationEnabled":True,"skillScanningEnabled":True,
-    "disableBundledSkills":False,"userPluginMarketplacesEnabled":True,
-    "userPluginUploadsEnabled":True,"isLocalDevMcpEnabled":True,
-    "mcpPersistentAlwaysAllowEnabled":True
-})
-
-# Egress
-if egress_arg=="minimo":
-    cfg["coworkEgressAllowedHosts"]=["github.com","api.github.com"]
-elif egress_arg=="completo":
-    cfg["coworkEgressAllowedHosts"]=["github.com","api.github.com","pypi.org","registry.npmjs.org","npmjs.org","*.github.com","*.githubusercontent.com","github.dev","gitlab.com","gitlab.org","bitbucket.org","docker.io"]
-else:
-    cfg["coworkEgressAllowedHosts"]=["github.com","api.github.com","pypi.org","registry.npmjs.org","npmjs.org","*.github.com","*.githubusercontent.com","github.dev"]
-
-# Marketplace
-if marketplace_arg: cfg["pluginMarketplaces"]=[marketplace_arg]
-
-# MCP servers
-if mcp_arg and mcp_arg not in ("[]","","null","undefined"):
-    mcp_servers_list=[
-        {"name":"filesystem","description":"Access and manage local files","transport":"streamable-http","url":"https://mcp.filesystem.example.com/sse","headers":{}},
-        {"name":"github","description":"GitHub API integration","transport":"streamable-http","url":"https://mcp.github.com/sse","headers":{}},
-        {"name":"brave-search","description":"Web search using Brave Search API","transport":"streamable-http","url":"https://api.search.kodeo.com.br/mcp/sse","headers":{}},
-        {"name":"memory","description":"Persistent memory and context management","transport":"streamable-http","url":"https://mcp.memory.example.com/sse","headers":{}},
-        {"name":"slack","description":"Slack workspace integration","transport":"streamable-http","url":"https://mcp.slack.example.com/sse","headers":{}},
-        {"name":"postgres","description":"PostgreSQL database access","command":"npx","args":["-y","@modelcontextprotocol/server-postgres"],"env":{}}
-    ]
-    selected=[s.strip() for s in mcp_arg.split(",") if s.strip()]
-    filtered=[s for s in mcp_servers_list if s["name"] in selected]
-    if filtered: cfg["managedMcpServers"]=filtered
-
-print(json.dumps(cfg,indent=2,ensure_ascii=False))
 '
   fi
 }
