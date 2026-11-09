@@ -36,6 +36,15 @@ cursor_off() { printf '%s[?25l' "$E"; }
 cursor_on()  { printf '%s[?25h' "$E"; }
 limpa_linha() { printf '\r%s[2K' "$E"; }
 TTY=/dev/tty; [ -r "$TTY" ] || TTY=/dev/stdin
+# O assistente é interativo: sem terminal não há como perguntar nada. A guarda
+# fica antes de qualquer leitura de /dev/tty, senão o bash reclama no caminho.
+exige_terminal() {
+  [ -r "$TTY" ] && [ -t 1 ] && return 0
+  printf '\n  Este configurador precisa de um terminal interativo.\n'
+  printf '  Rode o comando direto no Terminal, sem redirecionar a saída.\n\n'
+  exit 1
+}
+exige_terminal
 # Medir o terminal. `tput`/`stty` sem redirecionamento leem o stdin, que é um pipe
 # quando o comando é "curl … | bash" — e aí respondem 80x24 mesmo numa janela grande.
 # Por isso a leitura vai pelo tty de verdade.
@@ -292,7 +301,8 @@ tela_chave() {
           esac
         fi ;;
       bs) chave="${chave%?}";;
-      space|up|down|left|right|esc|eof) ;;
+      space|up|down|left|right|esc) ;;
+      eof) cancela;;
       *) chave="$chave$k";;
     esac
   done
@@ -411,6 +421,7 @@ tela_ferramentas() { # 0 = aplicar, 1 = voltar
       a|A) for ((i=0;i<n;i++)); do SEL[$i]=1; done;;
       left|b|B) [ "$CHAVE_DO_COMANDO" -eq 0 ] && return 1;;
       enter) local algum=0; for ((i=0;i<n;i++)); do [ "${SEL[$i]}" -eq 1 ] && algum=1; done; [ "$algum" -eq 1 ] && return 0;;
+      eof) cancela;;
     esac
     printf '%s[%dA' "$E" "$n"; desenha
   done
@@ -468,7 +479,7 @@ tela_modelos() { # 0 = seguir, 1 = voltar
     linha "  A chave é válida, mas ${BASE#https://}/v1/models não respondeu."
     linha ""
     rodape "enter:tentar" "←:voltar" "ctrl+c:sair"
-    while :; do k=$(tecla); case "$k" in enter) return 0;; left) return 1;; esc) return 1;; esac; done
+    while :; do k=$(tecla); case "$k" in enter) return 0;; left) return 1;; esc) return 1;; eof) cancela;; esac; done
   fi
   linha "${OK}✓${R} ${CAT_PLANO_N} modelos no seu plano"
   linha ""
@@ -491,7 +502,7 @@ tela_modelos() { # 0 = seguir, 1 = voltar
   linha "$atalhos"
   linha ""
   rodape "enter:continuar" "←:voltar" "ctrl+c:sair"
-  while :; do k=$(tecla); case "$k" in enter) return 0;; left) return 1;; esc) return 1;; esac; done
+  while :; do k=$(tecla); case "$k" in enter) return 0;; left) return 1;; esc) return 1;; eof) cancela;; esac; done
 }
 
 # ══ 4/4  APLICAR ══════════════════════════════════════════════════════════
@@ -806,6 +817,7 @@ tela_resumo() {
 }
 
 # ══ principal ═════════════════════════════════════════════════════════════
+exige_terminal
 abertura
 stty -echo 2>/dev/null <"$TTY" || true
 detectar
