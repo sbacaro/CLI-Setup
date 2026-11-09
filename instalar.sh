@@ -395,16 +395,43 @@ pasta_3p() {
 CX_DIR="${CODEX_HOME:-$HOME/.codex}"; CX_CFG="$CX_DIR/config.toml"
 
 detectar() {
-  if grep -qs "api.kodeo.com.br" "$HOME/.claude/settings.json" 2>/dev/null || grep -qs "^# >>> kodeo >>>" "$HOME/.zshrc" "$HOME/.bashrc" 2>/dev/null; then CONF[0]=1; fi
+  # Claude Code: verifica settings.json PRIMEIRO (fonte principal)
+  if grep -qs "api.kodeo.com.br" "$HOME/.claude/settings.json" 2>/dev/null; then
+    CONF[0]=1
+  elif grep -qs "^# >>> kodeo >>>" "$HOME/.zshrc" "$HOME/.bashrc" 2>/dev/null; then
+    # Só marca se tem vestígio E o settings.json não tem (config antiga/incompleta)
+    # Ou se tem ANTHROPIC_BASE_URL no bloco do kodeo
+    local bloco_encontrado=0
+    for f in "$HOME/.zshrc" "$HOME/.bashrc"; do
+      if [ -f "$f" ]; then
+        if grep -qs "^# >>> kodeo >>>" "$f" && grep -qs "ANTHROPIC_BASE_URL" "$f" 2>/dev/null; then
+          bloco_encontrado=1
+          break
+        fi
+      fi
+    done
+    [ "$bloco_encontrado" -eq 1 ] && CONF[0]=1
+  fi
   command -v claude >/dev/null 2>&1 && INST[0]=1
+  
+  # Claude Desktop: verifica configLibrary (mais confiável que o .json principal)
   local lib; lib="$(pasta_3p)/configLibrary"
-  if [ -f "$(pasta_3p)/claude_desktop_config.json" ] && grep -qs "3p" "$(pasta_3p)/claude_desktop_config.json" 2>/dev/null || grep -rqsi "kodeo" "$lib" 2>/dev/null; then CONF[1]=1; fi
+  if [ -f "$lib/_meta.json" ] && grep -qs '"name": *"Kodeo"' "$lib/_meta.json" 2>/dev/null; then
+    CONF[1]=1
+  fi
   { [ -d "/Applications/Claude.app" ] || [ -d "$HOME/Applications/Claude.app" ]; } && INST[1]=1
+  
+  # OpenCode
   grep -qs '"kodeo"' "$HOME/.config/opencode/opencode.json" 2>/dev/null && CONF[2]=1
   command -v opencode >/dev/null 2>&1 && INST[2]=1
-  grep -qs "model_providers.kodeo" "$CX_CFG" 2>/dev/null && { CONF[3]=1; CONF[3]=1; }
+  
+  # Codex / ChatGPT
+  grep -qs "model_providers.kodeo" "$CX_CFG" 2>/dev/null && CONF[3]=1
   command -v codex >/dev/null 2>&1 && INST[3]=1
-  local i; for i in 0 1 2 3; do [ "${CONF[$i]}" -eq 0 ] && SEL[$i]=1; done
+  
+  # Se nada está configurado, marca todos para seleção
+  local algum=0; for i in 0 1 2 3; do [ "${CONF[$i]}" -eq 1 ] && algum=1; done
+  [ "$algum" -eq 0 ] && for i in 0 1 2 3; do SEL[$i]=1; done
 }
 
 tela_ferramentas() { # 0 = aplicar, 1 = voltar
