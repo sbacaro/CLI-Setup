@@ -1,64 +1,85 @@
-# Configurador de terminal da Kodeo
+# CLI Setup
 
-Este é o script que o painel da Kodeo manda você colar no terminal. Ele está aqui, aberto, para você
-ler exatamente o que ele faz antes de rodar.
+Configurador de terminal que liga Claude Code, Claude Desktop, OpenCode e
+Codex/ChatGPT Desktop ao gateway, **lendo os modelos do seu plano em vez de usar
+uma lista fixa**.
 
 ## O comando
 
 | Sistema | Comando |
 |---|---|
-| macOS / Linux | `curl -fsSL https://kodeo.com.br/instalar.sh \| KODEO_KEY="ck_…" bash` |
-| Windows (PowerShell) | `$env:KODEO_KEY="ck_…"; irm https://kodeo.com.br/instalar.ps1 \| iex` |
+| macOS / Linux | `curl -fsSL https://raw.githubusercontent.com/sbacaro/CLI-Setup/main/instalar.sh \| CLI_KEY="ck_…" bash` |
+| macOS / Linux (sem a chave) | `curl -fsSL https://raw.githubusercontent.com/sbacaro/CLI-Setup/main/instalar.sh \| bash` |
 
-A chave vem no comando que o painel gera para você. Sem ela, o script pergunta a chave na tela.
-Os arquivos em `kodeo.com.br` são cópias exatas de `instalar.sh` e `instalar.ps1` deste repositório.
+Sem `CLI_KEY`, o **passo 1** do assistente pede a chave.
 
-## O que ele faz
+## Os quatro passos
 
-1. Valida a chave em `https://api.kodeo.com.br/v1/me`. Se a chave for recusada ou não houver internet,
-   ele avisa e não altera nada.
-2. Mostra o estado de quatro ferramentas no seu computador e deixa você marcar o que quer:
-   - **Claude Code**: grava as variáveis `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` e os modelos padrão
-     no bloco `env` de `~/.claude/settings.json`, e um bloco marcado `# >>> kodeo >>>` no `~/.zshrc` ou
-     `~/.bashrc`. No Windows, variáveis de ambiente do usuário.
-   - **Claude App** (aplicativo de computador): cria uma configuração "Kodeo" em `Claude-3p/configLibrary`,
-     liga `deploymentMode: "3p"` e `allowDevTools`, e reinicia o Claude se ele estiver aberto.
-   - **OpenCode**: adiciona o provedor `kodeo` com os modelos da Kodeo em `~/.config/opencode/opencode.json`,
-     guarda a chave em `~/.config/opencode/kodeo-api-key` (permissão só do dono) e deixa `kodeo/grok-4.7`
-     como modelo padrão. O modelo que você usava antes fica salvo em `~/.config/kodeo/opencode-model-anterior`.
-   - **Codex** (CLI da OpenAI): adiciona o provedor `kodeo` em `~/.codex/config.toml` (`base_url`
-     `https://api.kodeo.com.br/v1`, `wire_api = "responses"`, chave pela variável de ambiente `KODEO_API_KEY`,
-     que o script exporta no seu `.zshrc`/`.bashrc` ou nas variáveis do usuário no Windows) e deixa
-     `claude-opus-5` como modelo padrão. Se já existia um `config.toml`, ele fica guardado em
-     `~/.config/kodeo/codex-config.toml.anterior` e volta ao desconfigurar.
-3. Mostra um resumo do que foi feito.
+1. **Chave** — validada na API antes de qualquer gravação.
+2. **Ferramentas** — o que configurar ou desconfigurar.
+3. **Modelos** — o catálogo do seu plano é lido e resumido.
+4. **Aplicar** — gravação guiada, com teste de conexão no fim.
 
-Tudo é **mesclado**: o resto dos seus arquivos é preservado. A gravação é atômica, e um arquivo JSON
-corrompido faz o passo parar sem tocar nele.
+## Por que o catálogo importa
 
-## Como desfazer
+O configurador não carrega lista de modelos. Ele consulta `GET /v1/models`
+com a sua chave e usa o resultado para:
 
-Rode o mesmo comando de novo. O que já está configurado aparece como `configurado`; marque e ele
-**desconfigura**: tira só as chaves da Kodeo do `settings.json` (o bloco `env` some se ficar vazio), remove o
-bloco do `.zshrc`, apaga a configuração "Kodeo" do Claude App e volta o `deploymentMode` para `1p`, remove o
-provedor `kodeo` do OpenCode e devolve o seu modelo anterior, e devolve o `config.toml` do Codex como estava.
+- **Claude Code**: define `ANTHROPIC_DEFAULT_OPUS_MODEL`, `..._SONNET_MODEL` e
+  `..._HAIKU_MODEL` **só para os tiers que o plano tem**. Um tier ausente fica
+  sem variável, em vez de apontar para outro modelo.
+- **Claude Desktop**: grava `inferenceModels` completo, com
+  `anthropicFamilyTier`, `isFamilyDefault`, `supports1m` e `labelOverride`, e
+  `modelDiscoveryEnabled: false`. Sem isso o app filtra a lista, deixa os
+  atalhos de tier vazios e o usuário configura tudo à mão.
+- **OpenCode**: grava no formato **V2** (`providers` + `package` + `settings`),
+  com todos os modelos e o contexto real de cada um.
+- **Codex / ChatGPT Desktop**: fixa `model` explicitamente e instala um
+  `model_catalog_json` com o padrão em primeiro lugar. Sem o `model` explícito,
+  o app ordena pelo `priority` do catálogo e o primeiro modelo da lista vira o
+  padrão.
 
-## O que ele não faz
+## O que ele preserva
 
-- Não manda nada para a internet além das chamadas de validação e teste à API da Kodeo (`/v1/me`, `/v1/models`
-  e `/v1/responses` com um "ok"), todas com a sua própria chave.
-- Não instala programas, não pede senha, não mexe em outros arquivos.
-- Não guarda a chave em lugar nenhum além dos arquivos de configuração das ferramentas que você marcou.
+Toda gravação é mesclada e atômica (arquivo temporário + rename). Um JSON
+corrompido faz o passo parar sem tocar no arquivo. Configuração que já existia
+— permissões, variáveis, `files`, perfis, plugins — fica intacta.
 
-## Requisitos
+## Desfazer
 
-- macOS ou Linux: `bash` e `curl` (já vêm no sistema). Para editar os arquivos JSON ele usa o Node.js ou,
-  se não houver, o Python 3; sem os dois ele avisa e pede para instalar o Node.
-- Windows: PowerShell 5.1 ou mais novo (já vem no Windows 10 e 11).
+Rode de novo e marque o que aparece como `configurado`. O que for do usuário
+volta como estava: o `config.toml` original, o modelo anterior do OpenCode, o
+`settings.json` sem as nossas chaves.
 
-## Variáveis de ambiente
+## Variáveis
 
-- `KODEO_KEY`: a chave; com ela a pergunta da chave é pulada.
-- `KODEO_SEM_REINICIAR=1`: não reinicia o Claude App (usado em testes).
+| Variável | Efeito |
+|---|---|
+| `CLI_KEY` | a chave; pula o passo 1 |
+| `KODEO_KEY` | sinônimo, para compatibilidade |
+| `CLI_BASE` | outro endereço de API (padrão `https://api.kodeo.com.br`) |
+| `CLI_RAW` | de onde baixar `lib/` quando rodado por `curl \| bash` |
+| `CLI_SEM_REINICIAR=1` | não reinicia os apps |
+
+## Testes
+
+```sh
+bash testes/comportamento.sh              # com node
+JSON_TOOL=python3 bash testes/comportamento.sh   # com python
+```
+
+Cobrem: preservação de configuração existente, escolha do modelo padrão,
+tier ausente sem redirecionamento, idempotência e o desfazer.
+
+## Estrutura
+
+```
+instalar.sh          assistente (4 telas)
+lib/json.sh          leitura/escrita de JSON (node ou python)
+lib/catalogo.sh      consulta e interpreta /v1/models
+lib/geradores.sh     monta a configuração de cada ferramenta
+lib/opencode.sh      formato do OpenCode V2
+testes/              testes de comportamento
+```
 
 Licença MIT.
