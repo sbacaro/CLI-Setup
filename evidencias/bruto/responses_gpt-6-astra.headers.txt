@@ -1,0 +1,15 @@
+HTTP/2 200 
+date: Tue, 10 Nov 2026 00:50:19 GMT
+content-type: application/json
+cache-control: no-cache
+x-kodeo-overhead-ms: 57
+x-kodeo-provedor: g7
+x-kodeo-roteamento: ligado
+x-kodeo-substituto: gpt-6-astra>minimax-m2.7
+x-kodeo-ttft-ms: 370
+report-to: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=rGrwJUKvFWBhdPXkCW1gMO2qs5M6KHm41nLw5INCqAmf4us5%2BY0vVsTKDAf%2F8W9Cr4sj1pRgSDiGSKq0dSDRhI3SpoZRAu4dd%2B4ZYZqX2RNM13qAfmHhMCyIxWx27Nnke7GMPQckUWDgYQPU6qI4"}]}
+nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+server: cloudflare
+cf-ray: a5810ff1db6eef86-GRU
+alt-svc: h3=":443"; ma=86400
+

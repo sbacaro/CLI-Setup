@@ -1,0 +1,25 @@
+{
+    "id": "devshard-162779-634",
+    "object": "chat.completion",
+    "created": 1794271737,
+    "model": "glm-5.3-flash",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "GLM. \n\nSou um modelo de linguagem grande desenvolvido pela Z.ai, projetado para compreender e gerar texto em v\u00e1rios idiomas. Estou aqui para ajudar com suas perguntas!\n\nPosso auxiliar voc\u00ea com mais alguma informa\u00e7\u00e3o sobre minhas capacidades?"
+            },
+            "finish_reason": "stop"
+        }
+    ],
+    "usage": {
+        "completion_tokens": 180,
+        "completion_tokens_details": {
+            "reasoning_tokens": 121
+        },
+        "prompt_tokens": 25,
+        "total_tokens": 205
+    },
+    "system_fingerprint": "vllm-0.30.0-tp2-41d2c8b5"
+}

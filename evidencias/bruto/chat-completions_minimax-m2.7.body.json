@@ -1,0 +1,25 @@
+{
+    "id": "devshard-162720-1881",
+    "object": "chat.completion",
+    "created": 1794271604,
+    "model": "minimax-m2.7",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "MiniMax-M2.7"
+            },
+            "finish_reason": "stop"
+        }
+    ],
+    "usage": {
+        "completion_tokens": 326,
+        "completion_tokens_details": {
+            "reasoning_tokens": 0
+        },
+        "prompt_tokens": 50,
+        "total_tokens": 376
+    },
+    "system_fingerprint": "vllm-0.30.0-058f5f13"
+}

@@ -1,0 +1,49 @@
+{
+    "id": "resp_13joxfgm0np7q8i4",
+    "object": "response",
+    "created_at": 1794271818,
+    "status": "completed",
+    "model": "gpt-6-sol",
+    "output": [
+        {
+            "type": "message",
+            "id": "msg_jmzm53gdzulgpta4",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "output_text",
+                    "text": "MiniMax-M2.7",
+                    "annotations": []
+                }
+            ]
+        }
+    ],
+    "error": null,
+    "incomplete_details": null,
+    "parallel_tool_calls": true,
+    "tool_choice": "auto",
+    "tools": [],
+    "text": {
+        "format": {
+            "type": "text"
+        }
+    },
+    "reasoning": null,
+    "store": false,
+    "temperature": null,
+    "top_p": null,
+    "truncation": "disabled",
+    "metadata": {},
+    "usage": {
+        "input_tokens": 50,
+        "input_tokens_details": {
+            "cached_tokens": 0
+        },
+        "output_tokens": 326,
+        "output_tokens_details": {
+            "reasoning_tokens": 0
+        },
+        "total_tokens": 376
+    }
+}

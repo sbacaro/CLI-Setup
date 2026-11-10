@@ -1,0 +1,25 @@
+{
+    "id": "devshard-162758-665",
+    "object": "chat.completion",
+    "created": 1794271664,
+    "model": "deepseek-v4-flash",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "DeepSeek-V3"
+            },
+            "finish_reason": "stop"
+        }
+    ],
+    "usage": {
+        "completion_tokens": 215,
+        "completion_tokens_details": {
+            "reasoning_tokens": 208
+        },
+        "prompt_tokens": 95,
+        "total_tokens": 310
+    },
+    "system_fingerprint": "vllm-0.30.0-083223d8"
+}
