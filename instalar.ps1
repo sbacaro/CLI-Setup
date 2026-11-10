@@ -819,6 +819,12 @@ function Uninstall-OpenCode {
 
 # ── Codex / ChatGPT Desktop ────────────────────────────────────────────────
 function Write-CatalogoCodex {
+    # O catálogo do Codex vem de /v1/codex/modelos, não do /v1/models: só ele
+    # traz os 36 campos que o app valida.
+    if (-not (Initialize-CatalogoCodex -ApiKey $script:ChaveAtiva)) {
+        $script:ErroPasso = 'não consegui ler /v1/codex/modelos'
+        return $false
+    }
     $dir = $script:DirCodex
     if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 

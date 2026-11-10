@@ -236,6 +236,32 @@ CODEX_CLI_PATH = "/caminho/codex"
     checa 'o que vem depois do bloco fica'    ($r2 -match 'theme')
     Write-Host ''
 
+    # ══ 7c. catálogo do Codex é válido ═══════════════════════════════════
+    # O catálogo não é lista de nomes: o app valida cada modelo e recusa o
+    # arquivo inteiro se faltar campo. E o base_instructions que a API serve
+    # diz que o modelo é o "Codex CLI, da OpenAI" — substituí-lo muda a
+    # identidade de fato, porque o arquivo é local e lido a cada execução.
+    if ($Chave) {
+        Write-Host '7c. catálogo do Codex é válido'
+        $okCx = Initialize-CatalogoCodex -ApiKey $Chave
+        checa 'li /v1/codex/modelos' ($okCx)
+        if ($okCx) {
+            $cat = New-CodexCatalogo -ModeloPadrao (Get-PadraoOpenAI)
+            checa 'catálogo tem modelos' ($cat.models.Count -gt 0)
+            if ($cat.models.Count -gt 0) {
+                $m0 = $cat.models[0]
+                checa "modelo tem $($m0.Keys.Count) campos (schema completo)" ($m0.Keys.Count -gt 20)
+                checa 'tem slug (obrigatório)'                   ($m0.Contains('slug'))
+                checa 'tem supported_reasoning_levels (obrigatório)' ($m0.Contains('supported_reasoning_levels'))
+                $bi = if ($m0.Contains('base_instructions')) { [string]$m0['base_instructions'] } else { '' }
+                checa 'base_instructions não diz que é da OpenAI' (-not ($bi -match 'led by OpenAI'))
+                checa 'base_instructions aponta o gateway'        ($bi -match 'Kodeo')
+                checa 'só modelos OpenAI no catálogo' (@($cat.models | Where-Object { (Get-Familia $_.slug) -ne 'openai' }).Count -eq 0)
+            }
+        }
+        Write-Host ''
+    }
+
     # ══ 8. TOML do Codex ═══════════════════════════════════════════════
     Write-Host '8. Bloco TOML do Codex'
     $t = Get-CodexBlocoTopo -Modelo 'gpt-6-sol' -CatalogoCaminho 'C:\Users\x\.codex\cli-setup-models.json'

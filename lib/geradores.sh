@@ -330,41 +330,73 @@ cx_bloco_provider() { # BASE
   printf 'http_headers = { "x-openai-actor-authorization" = "kodeo" }\n'
 }
 
+# ── Instruções do Codex/ChatGPT ────────────────────────────────────────────
+# O /v1/codex/modelos traz 20 mil caracteres de base_instructions dizendo
+# "You are a coding agent running in the Codex CLI ... an open source project
+# led by OpenAI". É a origem da resposta "Sou o Codex CLI, criado pela OpenAI".
+#
+# O arquivo de catálogo é local e o app o lê a cada execução, então substituir
+# esse texto muda a identidade de fato — não é cosmético. A atribuição falsa
+# (dizer que é da OpenAI quando o modelo roda no gateway) é o que se corrige
+# aqui; o resto das instruções de ferramenta fica a cargo do app.
+#
+# Vazio desliga a substituição e mantém o texto da API.
+CODEX_INSTRUCOES="${KODEO_CODEX_INSTRUCOES-You are a coding agent. You run inside the Kodeo gateway, not OpenAI. Never claim to be Codex CLI or a product of OpenAI. If asked who you are, say you are an AI assistant accessed through the Kodeo gateway. Reply in the language of the user.}"
+
 # catalogo_codex_json — o arquivo que model_catalog_json aponta.
 # Usa o catálogo próprio do Codex (/v1/codex/modelos), que já vem no formato que ele lê.
 # Reordenado para o primeiro item ser o modelo escolhido, e sem `base_instructions`
 # duplicado em cada modelo (o config.toml já carrega o provedor).
 catalogo_codex_json() { # MODELO_PADRAO
   local padrao="$1"
-  printf '%s' "$CATALOGO_CODEX" | CAT_PADRAO="$padrao" catalogo_gerar_codex
+  printf '%s' "$CATALOGO_CODEX" | \
+    CAT_PADRAO="$padrao" CAT_INSTRUCOES="${CODEX_INSTRUCOES:-}" catalogo_gerar_codex
 }
 
-catalogo_gerar_codex() {
+# catalogo_gerar_codex — o arquivo que model_catalog_json aponta.
+#
+# Duas coisas que já quebraram aqui:
+#
+#   1. O catálogo NÃO é uma lista de nomes. O app valida cada modelo contra um
+#      schema e recusa o arquivo inteiro se faltar campo ("failed to parse
+#      model_catalog_json: missing field supported_reasoning_levels"). A versão
+#      anterior gravava só {slug, display_name, context} e descartava 34 campos
+#      do /v1/codex/modelos — o Codex ficava sem catálogo, em silêncio.
+#      Agora o modelo é repassado íntegro, e só o que é nosso é alterado.
+#
+#   2. base_instructions é o prompt que define a identidade. O /v1/codex/modelos
+#      serve 20 mil caracteres de "You are a coding agent running in the Codex
+#      CLI, a terminal-based coding assistant. Codex CLI is an open source
+#      project led by OpenAI" — é por isso que o app se apresentava como Codex
+#      CLI. Como o arquivo é local e o app o lê a cada execução, dar-lhe outro
+#      texto muda a identidade de fato (verificado: o modelo passa a se
+#      apresentar como o assistente do gateway).
+catalogo_gerar_codex() { # MODELO_PADRAO (vazio = usa CAT_PADRAO ou o primeiro)
+  local padrao="${1:-${CAT_PADRAO:-}}"
   if [ "${JSON_TOOL:-}" = node ]; then
-    node -e '
+    CAT_PADRAO="$padrao" node -e '
 const padrao=process.env.CAT_PADRAO||"";
-  // Lista real do plano, vinda do /v1/me. Sem ela, não filtra.
-  const plano=(process.env.CAT_PLANO_IDS||"").split("\n").map(s=>s.trim()).filter(Boolean);
-  let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
+const instrucoes=process.env.CAT_INSTRUCOES||"";
+const plano=(process.env.CAT_PLANO_IDS||"").split("\n").map(s=>s.trim()).filter(Boolean);
+let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
   let d={};try{d=JSON.parse(t)}catch{d={}}
   let ms=Array.isArray(d.models)?d.models:(Array.isArray(d.data)?d.data:[]);
   if(!ms.length){process.stdout.write("{\"models\":[]}\n");return;}
   const id=m=>m.slug||m.id||"";
-  // 1. Só família OpenAI: o Codex/ChatGPT não deve receber Claude, Grok, GLM, DeepSeek, MiniMax.
-  const ehOpenAI=i=>/^gpt|^codex|^o[0-9]|openai/i.test(i);
-  ms=ms.filter(m=>ehOpenAI(id(m)));
-  // 2. Só modelos que o plano realmente libera (senão o app lista um modelo
-  //    que responde 403 "está no plano superior").
+  // 1. Só família OpenAI: o Codex/ChatGPT não deve receber Claude, Grok, GLM.
+  ms=ms.filter(m=>/^gpt|^codex|^o[0-9]|openai/i.test(id(m)));
+  // 2. Só o que o plano libera (senão o app lista um modelo que responde 403).
   if(plano.length) ms=ms.filter(m=>plano.includes(id(m)));
-  // 3. Sem aliases de revenda (-kodeo / kodeo-): o nome canônico já está na lista.
+  // 3. Sem aliases de revenda: o nome canônico já está na lista.
   ms=ms.filter(m=>!/kodeo/i.test(id(m)));
-  // 3. Nome comercial: o app remove o prefixo "GPT-" da família OpenAI. Usar espaço
-  //    em vez de hífen preserva o nome inteiro no seletor ("GPT 5.5", não "5.5").
-  //    O app já acrescenta o provedor, então "(Kodeo)" no display_name vira ruído.
+  // 4. O objeto do modelo vai ÍNTEGRO — o schema do app exige os 36 campos.
+  //    Só o display_name é ajustado: o app remove o prefixo "GPT-" da família
+  //    OpenAI, e espaço preserva o nome no seletor ("GPT 5.5", não "5.5").
   ms=ms.map(m=>{
     if(typeof m.display_name==="string"){
       m.display_name=m.display_name.replace(/^GPT-/i,"GPT ").replace(/\s*\(kodeo\)\s*$/i,"").trim();
     }
+    if(instrucoes) m.base_instructions=instrucoes;
     return m;
   });
   if(!ms.length){process.stdout.write("{\"models\":[]}\n");return;}
@@ -375,29 +407,35 @@ const padrao=process.env.CAT_PADRAO||"";
   process.stdout.write(JSON.stringify({models:ms},null,2)+"\n");
 });'
   else
-    python3 -c '
-import sys,json,os,re
+    CAT_PADRAO="$padrao" python3 -c '
+import json,os,re,sys
 padrao=os.environ.get("CAT_PADRAO","")
-plano=[s.strip() for s in os.environ.get("CAT_PLANO_IDS","").split("\n") if s.strip()]
+instrucoes=os.environ.get("CAT_INSTRUCOES","")
+plano=[s.strip() for s in os.environ.get("CAT_PLANO_IDS","").split("
+") if s.strip()]
 try: d=json.load(sys.stdin)
 except Exception: d={}
 ms=d.get("models") if isinstance(d.get("models"),list) else (d.get("data") if isinstance(d.get("data"),list) else [])
 def ident(m): return m.get("slug") or m.get("id") or ""
-ms=[m for m in ms if re.match(r"^(gpt|codex|o[0-9]|openai)",ident(m),re.I)]
+ms=[m for m in ms if re.match(r"^gpt|^codex|^o[0-9]|openai", ident(m), re.I)]
 if plano: ms=[m for m in ms if ident(m) in plano]
-ms=[m for m in ms if not re.search(r"kodeo",ident(m),re.I)]
+ms=[m for m in ms if not re.search("kodeo", ident(m), re.I)]
 for m in ms:
     if isinstance(m.get("display_name"),str):
-        m["display_name"]=re.sub(r"\s*\(kodeo\)\s*$","",re.sub(r"^GPT-","GPT ",m["display_name"],flags=re.I),flags=re.I).strip()
-if padrao:
-    for i,m in enumerate(ms):
-        if ident(m)==padrao:
-            if i>0: ms.insert(0,ms.pop(i))
-            break
-print(json.dumps({"models":ms},indent=2,ensure_ascii=False))
+        m["display_name"]=re.sub(r"^GPT-","GPT ",m["display_name"],flags=re.I)
+        m["display_name"]=re.sub(r"\s*\(kodeo\)\s*$","",m["display_name"],flags=re.I).strip()
+    if instrucoes: m["base_instructions"]=instrucoes
+if not ms:
+    print(json.dumps({"models":[]}))
+else:
+    if padrao:
+        i=next((k for k,m in enumerate(ms) if ident(m)==padrao),-1)
+        if i>0: ms.insert(0, ms.pop(i))
+    print(json.dumps({"models":ms},indent=2,ensure_ascii=False))
 '
   fi
 }
+
 
 # catalogo_chaves — lê o JSON do stdin e imprime uma chave de topo por linha.
 # Usado pelo teste que confere as chaves contra a documentação oficial.

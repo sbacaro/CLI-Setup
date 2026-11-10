@@ -192,6 +192,51 @@ function Initialize-Plano {
 
 function Get-PlanoJson { return $script:PlanoJson }
 
+# ── catálogo do Codex ──────────────────────────────────────────────────────
+# O catálogo que o Codex/ChatGPT lê (model_catalog_json) NÃO é o /v1/models.
+# São objetos de schema próprio, com 36 campos que o app valida. O /v1/models
+# traz 14, sem `slug` e sem `supported_reasoning_levels`, e o app recusa o
+# arquivo inteiro — "failed to parse model_catalog_json". Por isso há um
+# endpoint separado, /v1/codex/modelos, e é ele que alimenta este catálogo.
+$script:CatalogoCodex = $null
+$script:CatalogoCodexLido = $false
+
+function Get-CatalogoCodexModelos {
+    $d = $script:CatalogoCodex
+    if ($null -eq $d) { return @() }
+    if ($d.PSObject.Properties['models'] -and $d.models) { return @($d.models) }
+    if ($d.PSObject.Properties['data'] -and $d.data) { return @($d.data) }
+    return @()
+}
+
+function Initialize-CatalogoCodex {
+    param([Parameter(Mandatory)][string]$ApiKey)
+    if ($script:CatalogoCodexLido) { return $true }
+    $r = Invoke-Api -Uri "$script:Base/v1/codex/modelos" -ApiKey $ApiKey -Metodo 'GET' -TimeoutSec 30
+    if ($null -eq $r -or [int]$r.StatusCode -ne 200) { return $false }
+    try { $j = $r.Content | ConvertFrom-Json -ErrorAction Stop } catch { return $false }
+    if (-not $j.PSObject.Properties['models']) { return $false }
+    $script:CatalogoCodex = $j
+    $script:CatalogoCodexLido = $true
+    return $true
+}
+
+# Modelos OpenAI do plano, a partir do catálogo do Codex (objetos íntegros).
+function Get-ModelosCodex {
+    $lista = @()
+    foreach ($m in @(Get-CatalogoCodexModelos)) {
+        $id = if ($m.PSObject.Properties['slug'] -and $m.slug) { [string]$m.slug }
+              elseif ($m.PSObject.Properties['id'] -and $m.id) { [string]$m.id }
+              else { '' }
+        if (-not $id) { continue }
+        if ((Get-Familia $id) -ne 'openai') { continue }
+        if (-not (Test-NoPlano $id)) { continue }
+        if ($id -match 'kodeo') { continue }
+        $lista += ,$m
+    }
+    return @($lista | Sort-Object { -(Get-VersaoModelo $(if ($_.PSObject.Properties['slug']) { $_.slug } else { $_.id })) })
+}
+
 # ── consultas ───────────────────────────────────────────────────────────────
 # Quantos modelos o catálogo tem (não o plano: o catálogo).
 function Get-ModeloContagem {

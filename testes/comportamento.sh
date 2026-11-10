@@ -268,6 +268,34 @@ else
 fi
 echo
 
+# ══ 4e. catálogo do Codex é válido e não mente sobre a identidade ═════════
+# Duas armadilhas, ambas silenciosas:
+#   1. O catálogo não é lista de nomes: o app valida cada modelo e recusa o
+#      ARQUIVO INTEIRO se faltar campo ("missing field supported_reasoning_levels").
+#      Gravar só {slug,display_name,context} deixava o Codex sem catálogo.
+#   2. O /v1/codex/modelos serve base_instructions dizendo que o modelo é o
+#      "Codex CLI, open source project led by OpenAI". Como o arquivo é local e
+#      o app o lê a cada execução, substituir esse texto muda a identidade.
+echo "4e. catálogo do Codex é válido e não diz que é da OpenAI"
+if [ -f "$CX_CATALOGO" ]; then
+  campos=$(node -e 'const d=require(process.argv[1]);process.stdout.write(String(Object.keys(d.models[0]||{}).length))' "$CX_CATALOGO" 2>/dev/null)
+  [ "${campos:-0}" -gt 20 ] && ok "modelos têm $campos campos (schema completo)" \
+    || falha "modelo com só $campos campos: o app recusa o arquivo"
+  tem_srl=$(node -e 'const d=require(process.argv[1]);process.stdout.write(String("supported_reasoning_levels" in (d.models[0]||{})))' "$CX_CATALOGO" 2>/dev/null)
+  [ "$tem_srl" = "true" ] && ok "tem supported_reasoning_levels (obrigatório)" \
+    || falha "falta supported_reasoning_levels: o app recusa o catálogo"
+  bi=$(node -e 'const d=require(process.argv[1]);process.stdout.write(String((d.models[0]||{}).base_instructions||""))' "$CX_CATALOGO" 2>/dev/null)
+  case "$bi" in
+    *"led by OpenAI"*) falha "base_instructions ainda diz que é projeto da OpenAI" ;;
+    *Kodeo*) ok "base_instructions aponta o gateway, não a OpenAI" ;;
+    "") ok "base_instructions removido (o app usa o padrão)" ;;
+    *) ok "base_instructions substituído" ;;
+  esac
+else
+  falha "catálogo do Codex não foi gravado"
+fi
+echo
+
 # ══ 4d. config.toml com plugins do app sobrevive ao desfazer ══════════════
 # Este é o defeito mais caro que a suíte pegou. Em TOML, tudo que vem depois de
 # um cabeçalho de tabela pertence a ele — inclusive o que o próprio app escreve.

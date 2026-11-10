@@ -235,26 +235,52 @@ function Get-ClaudeCodeEnv {
 # ── Codex / ChatGPT Desktop: catálogo de modelos ───────────────────────────
 # O app lê um arquivo de catálogo próprio (model_catalog_json). Formato: uma
 # lista "models", cada um com slug e display_name. O padrão vai em primeiro.
+# Instruções do Codex/ChatGPT. O /v1/codex/modelos traz 20 mil caracteres de
+# base_instructions dizendo "You are a coding agent running in the Codex CLI
+# ... an open source project led by OpenAI". É a origem do "Sou o Codex CLI".
+# O arquivo de catálogo é local e o app o lê a cada execução, então substituir
+# esse texto muda a identidade de fato. Vazio desliga a substituição.
+$script:CodexInstrucoes = if ($null -ne $env:KODEO_CODEX_INSTRUCOES) {
+    $env:KODEO_CODEX_INSTRUCOES
+} else {
+    'You are a coding agent. You run inside the Kodeo gateway, not OpenAI. Never claim to be Codex CLI or a product of OpenAI. If asked who you are, say you are an AI assistant accessed through the Kodeo gateway. Reply in the language of the user.'
+}
+
+# Monta o catálogo que model_catalog_json aponta.
+#
+# O catálogo NÃO é uma lista de nomes: o app valida cada modelo contra um
+# schema e recusa o arquivo inteiro se faltar campo ("failed to parse
+# model_catalog_json: missing field supported_reasoning_levels"). Gravar só
+# {slug, display_name, context} descartava 34 campos e deixava o Codex sem
+# catálogo, em silêncio. Aqui o objeto vai íntegro; só o que é nosso muda.
 function New-CodexCatalogo {
     param([Parameter(Mandatory)][string]$ModeloPadrao)
 
-    $modelos = @(Get-ModelosOpenAI)
     $lista = @()
-    foreach ($m in $modelos) {
-        $id = Get-ModeloId $m
+    foreach ($m in @(Get-ModelosCodex)) {
+        $id = if ($m.PSObject.Properties['slug']) { [string]$m.slug } else { Get-ModeloId $m }
         if (-not $id) { continue }
-        $nome = (Get-ModeloNome $m) -replace '\s*\(kodeo\)\s*$', ''
-        $lista += ,([ordered]@{
-            slug         = $id
-            display_name = $nome.Trim()
-            context      = (Get-ModeloContexto $m)
-        })
+
+        # Repassa o objeto cru (todos os campos que o schema exige).
+        $obj = [ordered]@{}
+        foreach ($p in $m.PSObject.Properties) {
+            $obj[$p.Name] = ConvertTo-OrderedMap $p.Value
+        }
+        if ($obj.Contains('display_name') -and $obj['display_name'] -is [string]) {
+            $n = $obj['display_name'] -replace '^GPT-', 'GPT '
+            $n = $n -replace '\s*\(kodeo\)\s*$', ''
+            $obj['display_name'] = $n.Trim()
+        }
+        if ($script:CodexInstrucoes) { $obj['base_instructions'] = $script:CodexInstrucoes }
+        $lista += ,$obj
     }
+
     # O padrão primeiro: é o que o app mostra selecionado na primeira abertura.
     $prim = $lista | Where-Object { $_.slug -eq $ModeloPadrao } | Select-Object -First 1
     if ($prim) {
         $lista = @($prim) + @($lista | Where-Object { $_.slug -ne $ModeloPadrao })
     }
+    if ($lista.Count -eq 0) { return [ordered]@{ models = @() } }
     return [ordered]@{ models = $lista }
 }
 

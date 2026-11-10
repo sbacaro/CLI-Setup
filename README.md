@@ -130,6 +130,31 @@ Anthropic e só existem no app padrão. Nenhuma configuração muda isso. També
 há `inferenceAnthropicBaseUrl`: o provider `anthropic` tem a URL fixa no código,
 por isso o modo 3P existe.
 
+## Identidade no Codex / ChatGPT Desktop
+
+Pedindo "quem é você?" no ChatGPT Desktop, a resposta era "sou o Codex CLI,
+criado pela OpenAI". Isso não vem do gateway: vem de `base_instructions` no
+catálogo de modelos, que tem 20 mil caracteres começando com *"You are a coding
+agent running in the Codex CLI, a terminal-based coding assistant. Codex CLI is
+an open source project led by OpenAI"*.
+
+O configurador agora substitui esse texto:
+
+```sh
+KODEO_CODEX_INSTRUCOES="..." ./instalar.sh    # texto próprio
+KODEO_CODEX_INSTRUCOES="" ./instalar.sh       # mantém o da API
+```
+
+Funciona porque o catálogo é um arquivo local (`model_catalog_json`) e o app o
+lê a cada execução. Verificado com o app real: a resposta passa a ser "sou um
+assistente de IA acessado através do gateway da Kodeo".
+
+> O catálogo **não** é uma lista de nomes. O app valida cada modelo contra um
+> schema e recusa o arquivo inteiro se faltar um campo — `missing field
+> supported_reasoning_levels`. A versão anterior gravava só
+> `{slug, display_name, context}` e descartava 34 campos do `/v1/codex/modelos`,
+> deixando o Codex sem catálogo em silêncio. Agora o modelo é repassado íntegro.
+
 ## O que ele preserva
 
 Toda gravação é mesclada e atômica (arquivo temporário + rename). Um JSON
