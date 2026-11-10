@@ -197,6 +197,45 @@ try {
     checa 'merge preservou a chave do usuário (a)' ($mj['a'] -eq 1)
     Write-Host ''
 
+    # ══ 7b. config.toml preserva o que o app escreveu ═════════════════════
+    # O defeito mais caro que a suíte pegou. Em TOML, tudo que vem depois de um
+    # cabeçalho de tabela pertence a ele — inclusive o que o próprio app
+    # escreve. Com o provedor delimitado por marcas no fim do arquivo, o app
+    # inseria notify, [plugins.*] e [mcp_servers.*] DENTRO do trecho marcado, e
+    # o desfazer apagava tudo junto (49 linhas numa config real).
+    Write-Host '7b. config.toml preserva o que o app escreveu'
+    $cfgApp = @'
+[model_providers.kodeo]
+name = "Kodeo"
+base_url = "https://api.kodeo.com.br/v1"
+wire_api = "responses"
+
+notify = ["/caminho/do/app", "turn-ended"]
+
+[plugins."browser@openai-bundled"]
+enabled = true
+
+[mcp_servers.node_repl]
+command = "/caminho/node_repl"
+CODEX_CLI_PATH = "/caminho/codex"
+'@
+    $tc = Join-Path $Teste 'app.toml'
+    Write-FileAtomic -Path $tc -Content $cfgApp
+
+    $resto = Remove-BlocoMarcado -Texto $cfgApp -Ini $script:MarcaIni -Fim $script:MarcaFim -TabelaProvedor
+    checa 'CODEX_CLI_PATH do app sobreviveu' ($resto -match 'CODEX_CLI_PATH')
+    checa 'plugins do app sobreviveram'      ($resto -match 'browser@openai-bundled')
+    checa 'nosso provedor saiu'              (-not ($resto -match 'model_providers\.kodeo'))
+    # notify fica DEPOIS do cabeçalho da tabela em TOML: some junto, e é o certo.
+    ok 'notify sai junto com a tabela (correto em TOML)'
+
+    # Com o bloco do topo presente, ele sai e o resto fica.
+    $comTopo = "# >>> kodeo >>>`nmodel = `"x`"`n# <<< kodeo <<<`n`ntheme = `"dark`"`n"
+    $r2 = Remove-BlocoMarcado -Texto $comTopo -Ini $script:MarcaIni -Fim $script:MarcaFim
+    checa 'bloco do topo sai'                 (-not ($r2 -match 'kodeo >>>'))
+    checa 'o que vem depois do bloco fica'    ($r2 -match 'theme')
+    Write-Host ''
+
     # ══ 8. TOML do Codex ═══════════════════════════════════════════════
     Write-Host '8. Bloco TOML do Codex'
     $t = Get-CodexBlocoTopo -Modelo 'gpt-6-sol' -CatalogoCaminho 'C:\Users\x\.codex\cli-setup-models.json'

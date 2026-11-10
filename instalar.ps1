@@ -30,7 +30,11 @@ param(
     #   -NaoInterativo -Ferramentas "claude-code,opencode"
     [switch]$NaoInterativo,
     [string]$Ferramentas = '',
-    [ValidateSet('minimo', 'padrao', 'completo')][string]$Egress = 'padrao'
+    [ValidateSet('minimo', 'padrao', 'completo')][string]$Egress = 'padrao',
+    # No modo não interativo, "configurar" mesmo que a ferramenta já esteja
+    # configurada. Sem isso, -Ferramentas numa máquina já configurada DESFAZ
+    # em vez de reaplicar, que é o oposto do esperado.
+    [switch]$Forcar
 )
 
 $ErrorActionPreference = 'Stop'
@@ -852,8 +856,11 @@ function Write-ConfigCodex {
 
     $corpo = ''
     if (Test-Path -LiteralPath $script:CfgCodex) { $corpo = [IO.File]::ReadAllText($script:CfgCodex) }
-    $corpo = Remove-BlocoMarcado -Texto $corpo -Ini $script:MarcaIni -Fim $script:MarcaFim -SemProvider
-    $corpo = Remove-BlocoMarcado -Texto $corpo -Ini '# >>> kodeo provider >>>' -Fim '# <<< kodeo provider <<<'
+    # Uma passada só: Remove-BlocoMarcado já descarta as marcas antigas do
+    # provedor como comentário e delimita a tabela por "[". Uma segunda passada
+    # por marcas antigas engoliria o arquivo inteiro, porque a marca de fim
+    # ficava no fim do arquivo, depois de plugins e mcp_servers.
+    $corpo = Remove-BlocoMarcado -Texto $corpo -Ini $script:MarcaIni -Fim $script:MarcaFim -TabelaProvedor
 
     # Separa cabeçalho (chaves soltas) do resto (tabelas). As chaves que nós
     # controlamos saem do cabeçalho para não duplicar.
@@ -926,8 +933,7 @@ function Uninstall-Codex {
         if (-not (Test-Path -LiteralPath $script:CfgCodex)) { return $true }
         $t = [IO.File]::ReadAllText($script:CfgCodex)
         if ($t -notmatch '^# >>> kodeo') { return $true }
-        $resto = Remove-BlocoMarcado -Texto $t -Ini $script:MarcaIni -Fim $script:MarcaFim
-        $resto = Remove-BlocoMarcado -Texto $resto -Ini '# >>> kodeo provider >>>' -Fim '# <<< kodeo provider <<<'
+        $resto = Remove-BlocoMarcado -Texto $t -Ini $script:MarcaIni -Fim $script:MarcaFim -TabelaProvedor
         if ([string]::IsNullOrWhiteSpace($resto)) { Remove-Item -LiteralPath $script:CfgCodex -Force }
         else { Write-FileAtomic -Path $script:CfgCodex -Content ($resto.TrimEnd() + "`n") }
         $true
@@ -1045,6 +1051,15 @@ function Invoke-Fluxo {
         $script:E = ''; $script:R = ''; $script:B = ''; $script:W = ''
         $script:G = ''; $script:OK = ''; $script:ERR = ''; $script:WARN = ''; $script:ACC = ''
         $script:EgressMode = $Egress
+        # Não interativo significa "aplique isto": zerar o estado de
+        # configuração faz Show-Aplicar configurar em vez de desfazer.
+        if (-not $Desfazer -and ($Forcar -or $Ferramentas)) {
+            for ($i = 0; $i -lt 5; $i++) { $script:Conf[$i] = $false }
+        }
+        # -Desfazer manda o contrário: só age no que está configurado.
+        if ($Desfazer) {
+            for ($i = 0; $i -lt 5; $i++) { $script:Conf[$i] = $true }
+        }
         $pedidas = @($Ferramentas -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
         for ($i = 0; $i -lt 5; $i++) { $script:Sel[$i] = $false }
         for ($i = 0; $i -lt 5; $i++) {

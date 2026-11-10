@@ -1027,7 +1027,46 @@ cx_baixar_catalogo() {
   grep -qs "\"$modelo\"" "$CX_CATALOGO" || { echo "o modelo $modelo não está no catálogo do Codex"; return 1; }
   return 0
 }
-cx_sem_blocos() { awk '/^# >>> kodeo( provider)? >>>$/{d=1;next} /^# <<< kodeo( provider)? <<<$/{d=0;next} !d' "$1"; }
+# cx_sem_blocos ARQUIVO → tira o que é nosso, preservando o resto.
+#   - o bloco de marcas do topo (model, model_provider, model_catalog_json)
+#   - a tabela [model_providers.kodeo] e as chaves dela
+#
+# Três armadilhas que já custaram caro aqui:
+#   1. Em TOML a tabela vai do cabeçalho até o próximo cabeçalho, então o fim
+#      do provedor é detectado por "[", não por marca. Com marcas no fim do
+#      arquivo, o que o app escrevesse depois do nosso provedor (plugins,
+#      mcp_servers, CODEX_CLI_PATH) ficava dentro do trecho marcado e o
+#      desfazer apagava junto — 49 linhas na config real.
+#   2. Versões antigas punham "# >>> kodeo provider >>>" antes do cabeçalho e
+#      "# <<< kodeo provider <<<" depois do arquivo TODO. Remover por essas
+#      marcas engolia plugins e mcp_servers que o app tinha acrescentado.
+#      Agora elas são tratadas como comentário comum, e quem delimita é a
+#      própria tabela.
+#   3. Em awk as regras são avaliadas na ordem escrita: o `next` de "pular
+#      enquanto dentro" tem de vir DEPOIS das regras que ligam e desligam o
+#      estado.
+cx_sem_blocos() {
+  awk '
+    # ── liga/desliga do bloco do topo ─────────────────────────────────────
+    /^# >>> kodeo >>>$/ { d=1; next }
+    /^# <<< kodeo <<<$/ { d=0; next }
+
+    # ── tabela do provedor: do cabeçalho até o próximo cabeçalho ──────────
+    /^\[model_providers\.kodeo\]/ { t=1; next }
+    t && /^\[/                      { t=0 }
+
+    # ── marcas antigas do provedor: puro comentário, não delimitam nada ───
+    /^# >>> kodeo provider >>>$/ { next }
+    /^# <<< kodeo provider <<<$/ { next }
+
+    # ── só então pula o que está dentro ───────────────────────────────────
+    d { next }
+    t { next }
+
+    { print }
+  ' "$1"
+}
+
 cx_escrever() {
   mkdir -p "$CX_DIR" || return 1
   [ -f "$CX_BK" ] || { mkdir -p "$(dirname "$CX_BK")"; [ -f "$CX_CFG" ] && cp "$CX_CFG" "$CX_BK"; }
@@ -1053,7 +1092,9 @@ cx_remover() {
   rm -f "$CX_CATALOGO" "$CX_MODELO_ARQ"
   [ -f "$CX_CFG" ] || return 0
   if [ -f "$CX_BK" ]; then mv "$CX_BK" "$CX_CFG"; return 0; fi
-  grep -qs "^# >>> kodeo" "$CX_CFG" || return 0
+  # O arquivo pode ter só a tabela do provedor (sem o bloco do topo): as duas
+  # formas são nossas e ambas precisam ser removidas.
+  grep -qs "^# >>> kodeo" "$CX_CFG" || grep -qs "^\[model_providers\.kodeo\]" "$CX_CFG" || return 0
   local resto; resto=$(cx_sem_blocos "$CX_CFG")
   if [ -z "$(printf '%s' "$resto" | tr -d '[:space:]')" ]; then rm -f "$CX_CFG"; else printf '%s\n' "$resto" >"$CX_CFG"; fi
 }

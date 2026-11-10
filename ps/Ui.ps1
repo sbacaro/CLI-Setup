@@ -454,17 +454,33 @@ function Wait-Continuar {
 
 # Remove o trecho entre as marcas. Usado pelo shell e pelo config.toml.
 function Remove-BlocoMarcado {
-    param([string]$Texto, [string]$Ini, [string]$Fim, [switch]$SemProvider)
+    param([string]$Texto, [string]$Ini, [string]$Fim, [switch]$TabelaProvedor)
     $out = @()
     $dentro = $false
+    $tabela = $false
     foreach ($l in ($Texto -split "`r?`n")) {
         $t = $l.Trim()
-        if ($t -eq $Ini -or ($SemProvider -and $t -eq '# >>> kodeo provider >>>')) { $dentro = $true; continue }
-        if ($t -eq $Fim -or ($SemProvider -and $t -eq '# <<< kodeo provider <<<')) { $dentro = $false; continue }
+
+        # Marcas antigas do provedor eram puro comentário. Elas iam do início
+        # do provedor até o fim do ARQUIVO, então removê-las levava junto
+        # plugins e mcp_servers que o app tinha acrescentado depois.
+        if ($t -eq '# >>> kodeo provider >>>' -or $t -eq '# <<< kodeo provider <<<') { continue }
+
+        if ($t -eq $Ini) { $dentro = $true; continue }
+        if ($t -eq $Fim) { $dentro = $false; continue }
+
+        # Em TOML a tabela do provedor vai do cabeçalho até o próximo "["
+        if ($TabelaProvedor) {
+            if ($t -match '^\[model_providers\.kodeo\]') { $tabela = $true; continue }
+            if ($tabela -and $t -match '^\[') { $tabela = $false }
+            if ($tabela) { continue }
+        }
+
         if (-not $dentro) { $out += $l }
     }
     return ($out -join "`n")
 }
+
 
 # ── passo (spinner) ────────────────────────────────────────────────────────
 # Executa um bloco com indicador girando e devolve o resultado.

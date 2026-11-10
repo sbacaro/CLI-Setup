@@ -316,13 +316,18 @@ cx_bloco_topo() { # MODELO [CATALOGO]
 }
 
 cx_bloco_provider() { # BASE
-  printf '# >>> kodeo provider >>>\n[model_providers.kodeo]\nname = "Kodeo"\n'
+  # Sem marcas de comentário. Em TOML, tudo que vem depois de um cabeçalho de
+  # tabela pertence a ele — inclusive o que o próprio app escrever depois. Com
+  # marcas no fim do arquivo, o app inseria `notify`, `[plugins.*]`,
+  # `[mcp_servers.*]` DENTRO do trecho marcado, e o desfazer apagava tudo isso
+  # junto com o provedor (49 linhas na config real). O escopo do provedor é a
+  # tabela `[model_providers.kodeo]`, e é por ela que a remoção se orienta.
+  printf '[model_providers.kodeo]\nname = "Kodeo"\n'
   printf 'base_url = "%s/v1"\n' "$1"
   printf 'wire_api = "responses"\n'
   printf 'env_key = "KODEO_API_KEY"\n'
   printf 'requires_openai_auth = false\n'
   printf 'http_headers = { "x-openai-actor-authorization" = "kodeo" }\n'
-  printf '# <<< kodeo provider <<<\n'
 }
 
 # catalogo_codex_json — o arquivo que model_catalog_json aponta.

@@ -268,6 +268,75 @@ else
 fi
 echo
 
+# ══ 4d. config.toml com plugins do app sobrevive ao desfazer ══════════════
+# Este é o defeito mais caro que a suíte pegou. Em TOML, tudo que vem depois de
+# um cabeçalho de tabela pertence a ele — inclusive o que o próprio app escreve.
+# Quando o provedor era delimitado por marcas no fim do arquivo, o app inseria
+# notify, [plugins.*] e [mcp_servers.*] DENTRO do trecho marcado, e o desfazer
+# apagava tudo junto (49 linhas numa config real).
+echo "4d. config.toml preserva o que o app escreveu"
+cat > "$CX_CFG" <<'TOML'
+[model_providers.kodeo]
+name = "Kodeo"
+base_url = "https://api.kodeo.com.br/v1"
+wire_api = "responses"
+env_key = "KODEO_API_KEY"
+
+notify = ["/caminho/do/app", "turn-ended"]
+model_reasoning_effort = "xhigh"
+
+[marketplaces.openai-bundled]
+source_type = "local"
+
+[plugins."browser@openai-bundled"]
+enabled = true
+
+[mcp_servers.node_repl]
+command = "/caminho/node_repl"
+CODEX_CLI_PATH = "/caminho/codex"
+TOML
+cp "$CX_CFG" "$TESTE/cfg-app.toml"
+# O backup de um teste anterior faria cx_remover restaurar em vez de remover;
+# aqui interessa justamente o caminho de remoção.
+rm -f "$CX_BK"
+# Escreve o nosso por cima. cx_escrever faz backup do arquivo ANTES de mexer
+# (é o que permite restaurar depois), então o backup guardaria uma cópia já com
+# a nossa tabela. Aqui o caminho exercitado é a remoção cirúrgica, não a
+# restauração: o backup sai do caminho.
+cx_escrever >/dev/null 2>&1
+rm -f "$CX_BK"
+cx_remover >/dev/null 2>&1
+restou=$(cat "$CX_CFG" 2>/dev/null)
+case "$restou" in
+  *CODEX_CLI_PATH*) ok "CODEX_CLI_PATH do app sobreviveu" ;;
+  *) falha "CODEX_CLI_PATH do app foi apagado" ;;
+esac
+case "$restou" in
+  *'[plugins."browser@openai-bundled"]'*) ok "plugins do app sobreviveram" ;;
+  *) falha "plugins do app foram apagados" ;;
+esac
+# notify está DEPOIS do cabeçalho da tabela, então pertence ao provedor em
+# TOML: some junto, e isso é correto. O app o reescreve ao abrir.
+case "$restou" in
+  *notify*) ok "notify preservado (ficou fora da tabela)" ;;
+  *) ok "notify saiu junto com a tabela (correto em TOML)" ;;
+esac
+grep -qs 'model_providers\.kodeo' "$CX_CFG" && falha "nosso provedor ficou" \
+  || ok "nosso provedor saiu"
+grep -qs '^# >>> kodeo >>>' "$CX_CFG" && falha "nosso bloco do topo ficou" \
+  || ok "nosso bloco do topo saiu"
+# Devolve o cenário que o resto da suíte espera: o config.toml do usuário
+# (com approval_policy e profiles) e sem nada nosso.
+cat > "$CX_CFG" <<'TOML'
+model = "gpt-5.5"
+approval_policy = "on-request"
+
+[profiles.rapido]
+model = "gpt-5.5"
+TOML
+rm -f "$CX_BK"
+echo
+
 # ══ 5. desfazer devolve o que era do usuário ══════════════════════════════
 echo "5. Desfazer devolve o que era do usuário"
 remover_opencode >/dev/null 2>&1

@@ -282,15 +282,20 @@ $fim
 # depois de um cabeçalho de tabela pertence a ele.
 function Get-CodexBlocoProvider {
     param([Parameter(Mandatory)][string]$Base)
-    $ini = '# >>> kodeo provider >>>'
-    $fim = '# <<< kodeo provider <<<'
+    # Sem marcas de comentário em volta. Em TOML tudo que vem depois de um
+    # cabeçalho de tabela pertence a ele — inclusive o que o próprio app
+    # escrever ali depois. Com marcas no fim do arquivo, o app inseria
+    # notify, [plugins.*] e [mcp_servers.*] DENTRO do trecho marcado, e o
+    # desfazer apagava tudo junto (49 linhas na config real). O escopo do
+    # provedor é a tabela [model_providers.kodeo], e é por ela que a remoção
+    # se orienta.
     return @"
-$ini
 [model_providers.kodeo]
 name = "Kodeo"
 base_url = "$Base/v1"
 wire_api = "responses"
 env_key = "KODEO_API_KEY"
-$fim
+requires_openai_auth = false
+http_headers = { "x-openai-actor-authorization" = "kodeo" }
 "@
 }
