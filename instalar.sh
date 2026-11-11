@@ -561,11 +561,15 @@ tela_desktop() { # 0 = seguir, 1 = voltar
   # ── 1. Skills ─────────────────────────────────────────────────────────────
   linha "${B}${W}Skills e plugins oficiais da Anthropic${R}"
   linha "${G}Dois marketplaces públicos no GitHub, Apache 2.0 — os mesmos que${R}"
-  linha "${G}alimentam o Claude real. Aparecem em Customize → Plugins → Organization.${R}"
+  linha "${G}alimentam o Claude real. Aparecem em Customize → Plugins.${R}"
   linha ""
-  linha "  ${OK}✓${R} ${W}anthropics/skills${R}       ${G}docx, pdf, pptx, xlsx, skill-creator…${R}"
-  linha "  ${OK}✓${R} ${W}anthropics/claude-code${R}  ${G}code-review, commit-commands, hookify…${R}"
+  linha "  ${OK}✓${R} ${W}anthropics/skills${R}                   ${G}docx, pdf, pptx, xlsx, skill-creator…${R}"
+  linha "  ${OK}✓${R} ${W}anthropics/claude-plugins-official${R}  ${G}code-review, commit-commands, hookify…${R}"
   linha "  ${G}Versão mais recente: o marketplace segue o branch padrão.${R}"
+  linha ""
+  linha "${G}O marketplace é só o catálogo. Um plugin só aparece depois do registro${R}"
+  linha "${G}de instalação, que é o que esta etapa grava — sem ele o app reporta${R}"
+  linha "${G}\"0 enabled local plugins\" e a interface fica vazia.${R}"
   linha ""
 
   # ── 2. Busca na web ───────────────────────────────────────────────────────
@@ -910,6 +914,7 @@ remover_claude_desktop() {
     id=$(grep -o "\"appliedId\": *\"[^\"]*\"" "$lib/_meta.json" | sed "s/.*: *\"//; s/\"$//")
     [ -n "$id" ] && rm -f "$lib/$id.json"
     rm -f "$lib/_meta.json"' _ "$lib"
+  passo "desinstalar os plugins instalados" cd_plugins_remover
   [ -f "$(pasta_3p)/claude_desktop_config.json" ] && passo "deploymentMode = 1p" json_op "$(pasta_3p)/claude_desktop_config.json" merge '{"deploymentMode":"1p"}'
   passo "Reiniciar o Claude (se estiver aberto)" cd_reiniciar
   true
@@ -919,6 +924,7 @@ aplicar_claude_desktop() {
   passo "Configuração guiada (modelos + atalhos) em Claude-3p/configLibrary" cd_escrever
   passo "deploymentMode = 3p" cd_modo
   passo "Modo desenvolvedor (allowDevTools)" cd_devtools
+  passo "Marketplaces oficiais e plugins instalados" cd_plugins
   passo "Reiniciar o Claude (se estiver aberto)" cd_reiniciar
 }
 

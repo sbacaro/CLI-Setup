@@ -24,8 +24,15 @@
 # branch é aceito e preferível.
 SKILLS_REPO="${KODEO_SKILLS_REPO:-anthropics/skills}"
 SKILLS_NAME="anthropic-agent-skills"
-CODE_REPO="${KODEO_CODE_PLUGINS_REPO:-anthropics/claude-code}"
-CODE_NAME="claude-code-plugins"
+# anthropics/claude-code NÃO é um marketplace: é o repositório do produto. Seu
+# .claude-plugin/marketplace.json lista 12 plugins e TODOS declaram "source"
+# como objeto ({source:"git-subdir",url:...}), forma que o app trata como
+# "external" e descarta do host install — o log dizia "12 external-source
+# plugin(s) excluded from host install" e sobrava zero plugin instalável.
+# O diretório oficial é anthropics/claude-plugins-official: 317 plugins, dos
+# quais 54 declaram "source" como caminho relativo e instalam de fato.
+CODE_REPO="${KODEO_CODE_PLUGINS_REPO:-anthropics/claude-plugins-official}"
+CODE_NAME="claude-plugins-official"
 
 # desktop_marketplaces_json → array JSON dos marketplaces permitidos.
 # INCLUIR_SKILLS (1|0), INCLUIR_CODE (1|0)
@@ -122,6 +129,150 @@ org_plugins_dir() {
   else
     printf '/opt/claude/org-plugins'
   fi
+}
+
+# ── Plugins: instalação efetiva ─────────────────────────────────────────────
+# Declarar o marketplace em allowedPluginMarketplaces só o clona. Um plugin só
+# aparece na interface quando existe o registro de instalação: uma entrada em
+# cowork_plugins/installed_plugins.json e a chave ligada em cowork_settings.json.
+# Nada no app escreve isso por fora da interface — daí um marketplace clonado
+# com "0 enabled local plugins (0 installed)".
+#
+# Caminho: <userData>/local-agent-mode-sessions/<conta>/<org>/cowork_plugins/
+# O app aceita scope "user" (o enum é user|local|project) e confere que
+# installPath está dentro de marketplaces/<nome>/.
+#
+# Os plugins listados abaixo têm "source" como caminho relativo no
+# marketplace.json — a forma que o host instala. Os que usam git-subdir/url são
+# remotos e o app os exclui de propósito, então não entram aqui.
+DESKTOP_PLUGINS="code-review commit-commands hookify feature-dev plugin-dev
+pr-review-toolkit security-guidance ralph-loop agent-sdk-dev claude-code-setup
+claude-md-management code-simplifier explanatory-output-style
+learning-output-style"
+
+# desktop_sessoes_dir → imprime o diretório <conta>/<org> das sessões locais
+desktop_sessoes_dir() {
+  local base; base="$(pasta_3p)/local-agent-mode-sessions"
+  [ -d "$base" ] || return 1
+  # O layout é <uuid-conta>/<uuid-org>. Escolhe o que já tem cowork_plugins e,
+  # entre vários, o mais recente; sem nenhum, o primeiro que parecer conta.
+  local d
+  d=$(find "$base" -maxdepth 2 -type d -name cowork_plugins 2>/dev/null \
+      | while read -r p; do printf '%s\t%s\n' "$(stat -f %m "$p" 2>/dev/null || stat -c %Y "$p" 2>/dev/null)" "$(dirname "$p")"; done \
+      | sort -rn | head -1 | cut -f2-)
+  [ -n "$d" ] && { printf '%s' "$d"; return 0; }
+  d=$(find "$base" -mindepth 2 -maxdepth 2 -type d 2>/dev/null | head -1)
+  [ -n "$d" ] && { printf '%s' "$d"; return 0; }
+  return 1
+}
+
+# cd_plugins → instala o registro dos plugins padrão no perfil 3P.
+# Idempotente: preserva o que já existe e só acrescenta o que falta.
+cd_plugins() {
+  local sess; sess=$(desktop_sessoes_dir) || return 0
+  local mkt_dir="$sess/cowork_plugins/marketplaces"
+  [ -d "$mkt_dir" ] || return 0
+  local lista="${DESKTOP_PLUGINS:-}"
+  [ -n "$lista" ] || return 0
+  DESKTOP_PLUGINS_ALVO="$lista" CLI_SESS="$sess" CLI_TOOL="$JSON_TOOL" python3 - <<'PY'
+import json,os,sys
+sess=os.environ["CLI_SESS"]
+alvo=os.environ["DESKTOP_PLUGINS_ALVO"].split()
+mkt_root=os.path.join(sess,"cowork_plugins","marketplaces")
+reg=os.path.join(sess,"cowork_plugins","installed_plugins.json")
+cfg=os.path.join(sess,"cowork_settings.json")
+
+# índice: nome do plugin -> (marketplace, caminho do marketplace, skills[])
+idx={}
+if os.path.isdir(mkt_root):
+    for mkt in sorted(os.listdir(mkt_root)):
+        mj=os.path.join(mkt_root,mkt,".claude-plugin","marketplace.json")
+        try: d=json.load(open(mj,encoding="utf-8"))
+        except Exception: continue
+        for p in d.get("plugins") or []:
+            n=p.get("name"); s=p.get("source")
+            # só a forma relativa é instalável pelo host
+            if not n or not isinstance(s,str): continue
+            if n in idx: continue
+            idx[n]=(mkt,os.path.join(mkt_root,mkt),p.get("skills") or [])
+
+# lê o que existe sem estragar
+def ler(p,padrao):
+    try:
+        with open(p,encoding="utf-8") as f: d=json.load(f)
+        return d if isinstance(d,dict) else padrao
+    except Exception:
+        return padrao
+
+instalados=ler(reg,{"plugins":{}})
+if not isinstance(instalados.get("plugins"),dict): instalados["plugins"]={}
+ligados=ler(cfg,{"enabledPlugins":{}})
+if not isinstance(ligados.get("enabledPlugins"),dict): ligados["enabledPlugins"]={}
+
+novos=0; faltando=[]
+for nome in alvo:
+    if nome not in idx: faltando.append(nome); continue
+    mkt,path,skills=idx[nome]
+    pid=f"{nome}@{mkt}"
+    if pid in instalados["plugins"]: continue
+    ent={"id":pid,"name":nome,"installPath":path,"scope":"user","enabled":True,
+         "marketplaceName":mkt,"installationPreference":"available"}
+    if skills: ent["skills"]=list(skills)
+    instalados["plugins"][pid]=[ent]
+    ligados["enabledPlugins"][pid]=True
+    novos+=1
+
+os.makedirs(os.path.dirname(reg),exist_ok=True)
+with open(reg,"w",encoding="utf-8") as f: json.dump(instalados,f,indent=2,ensure_ascii=False)
+with open(cfg,"w",encoding="utf-8") as f: json.dump(ligados,f,indent=2,ensure_ascii=False)
+
+tot=len(instalados["plugins"])
+print(f"plugins={tot} novos={novos}"+(f" ausentes_no_marketplace={','.join(faltando)}" if faltando else ""))
+PY
+}
+
+# cd_plugins_remover → desfaz só os plugins que este instalador registrou.
+# Não toca em plugin que o usuário instalou pela interface: a lista é fechada
+# (DESKTOP_PLUGINS) e só remove ids cujo marketplace é um dos nossos.
+cd_plugins_remover() {
+  local sess; sess=$(desktop_sessoes_dir) || return 0
+  [ -d "$sess/cowork_plugins" ] || return 0
+  CLI_SESS="$sess" CLI_MKTS="$SKILLS_NAME,$CODE_NAME" python3 - <<'PY'
+import json,os
+sess=os.environ["CLI_SESS"]
+nossos=set(x for x in os.environ["CLI_MKTS"].split(",") if x)
+reg=os.path.join(sess,"cowork_plugins","installed_plugins.json")
+cfg=os.path.join(sess,"cowork_settings.json")
+
+def ler(p,padrao):
+    try:
+        with open(p,encoding="utf-8") as f: d=json.load(f)
+        return d if isinstance(d,dict) else padrao
+    except Exception:
+        return padrao
+
+instalados=ler(reg,{"plugins":{}})
+plugins=instalados.get("plugins")
+if not isinstance(plugins,dict): raise SystemExit(0)
+
+# id no formato nome@marketplace
+def nosso(pid):
+    return "@" in pid and pid.rsplit("@",1)[1] in nossos
+
+antes=len(plugins)
+plugins={k:v for k,v in plugins.items() if not nosso(k)}
+if len(plugins)==antes: raise SystemExit(0)
+
+instalados["plugins"]=plugins
+with open(reg,"w",encoding="utf-8") as f: json.dump(instalados,f,indent=2,ensure_ascii=False)
+
+ligados=ler(cfg,{"enabledPlugins":{}})
+ep=ligados.get("enabledPlugins")
+if isinstance(ep,dict):
+    ligados["enabledPlugins"]={k:v for k,v in ep.items() if not nosso(k)}
+    with open(cfg,"w",encoding="utf-8") as f: json.dump(ligados,f,indent=2,ensure_ascii=False)
+print("removidos:",antes-len(plugins))
+PY
 }
 
 # ── MCP local via npx ───────────────────────────────────────────────────────

@@ -251,6 +251,76 @@ n=$(grep -c "model_providers.kodeo" "$CX_CFG" 2>/dev/null || echo 0)
 [ "$n" = 1 ] && ok "provedor do Codex aparece uma vez" || falha "provedor do Codex duplicado ($n)"
 echo
 
+# ══ 4a2. Plugins do Desktop ═══════════════════════════════════════════════
+# Declarar o marketplace só o clona. O plugin só aparece quando existe registro
+# em installed_plugins.json e a chave ligada em cowork_settings.json — nada no
+# app escreve isso por fora da interface. O sintoma de antes era exatamente
+# "0 enabled local plugins (0 installed)" com os dois marketplaces sincronizados.
+echo "4a2. Plugins do Desktop têm registro de instalação"
+
+# o marketplace precisa apontar para o diretório oficial, não para o do produto
+_repo=$(desktop_marketplaces_json 1 1 | python3 -c '
+import json,sys
+for e in json.load(sys.stdin):
+    if e.get("expectedName")=="claude-plugins-official": print(e.get("repo"))
+' 2>/dev/null)
+[ "$_repo" = "anthropics/claude-plugins-official" ] \
+  && ok "marketplace de plugins é o oficial ($_repo)" \
+  || falha "marketplace de plugins aponta para '$_repo' (anthropics/claude-code não tem plugin instalável)"
+
+# monta um perfil 3P falso com marketplace clonado e roda a instalação
+# O nome do marketplace é o real: o desfazer casa por ele, e um nome inventado
+# faria o teste "provar" que a remoção falha quando na verdade ela só está
+# recusando um marketplace que não é nosso.
+_fake="$TESTE/claude3p/local-agent-mode-sessions/acc/org"
+mkdir -p "$_fake/cowork_plugins/marketplaces/claude-plugins-official/.claude-plugin"
+cat >"$_fake/cowork_plugins/marketplaces/claude-plugins-official/.claude-plugin/marketplace.json" <<'JSON'
+{ "name": "claude-plugins-official", "plugins": [
+  { "name": "code-review", "source": "./plugins/code-review" },
+  { "name": "commit-commands", "source": "./plugins/commit-commands" },
+  { "name": "remoto", "source": { "source": "git-subdir", "url": "https://x" } }
+] }
+JSON
+DESKTOP_PLUGINS="code-review commit-commands remoto"
+pasta_3p() { printf '%s' "$TESTE/claude3p"; }
+cp "$REPO/lib/desktop.sh" "$TESTE/desktop_teste.sh"
+( . "$TESTE/desktop_teste.sh"; cd_plugins ) >"$TESTE/plugin_out" 2>&1
+
+_preg="$_fake/cowork_plugins/installed_plugins.json"
+_pcfg="$_fake/cowork_settings.json"
+if [ -f "$_preg" ]; then
+  ok "installed_plugins.json foi escrito"
+  _res=$(python3 - "$_preg" "$_pcfg" <<'PY'
+import json,sys
+reg=json.load(open(sys.argv[1])); cfg=json.load(open(sys.argv[2]))
+p=reg.get("plugins") or {}; e=cfg.get("enabledPlugins") or {}
+nomes={k.split("@")[0] for k in p}
+f=[]
+if "code-review" not in nomes: f.append("code-review fora")
+if "commit-commands" not in nomes: f.append("commit-commands fora")
+if "remoto" in nomes: f.append("plugin remoto (source objeto) foi incluído")
+for k in p:
+    if "@" not in k: f.append(f"id sem @marketplace: {k}")
+    if p[k][0].get("scope")!="user": f.append(f"scope errado em {k}")
+    if e.get(k) is not True: f.append(f"{k} não está ligado")
+print("OK" if not f else "FALHA: "+"; ".join(f))
+PY
+)
+  case "$_res" in
+    OK) ok "registro correto: scope user, ligado, sem remoto" ;;
+    *) falha "$_res" ;;
+  esac
+
+  # desfazer remove só o nosso
+  ( . "$TESTE/desktop_teste.sh"; cd_plugins_remover ) >/dev/null 2>&1
+  _rest=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))['plugins']))" "$_preg" 2>/dev/null || echo "?")
+  [ "$_rest" = "0" ] && ok "desfazer remove os plugins instalados" \
+    || falha "desfazer deixou $_rest plugin(s)"
+else
+  falha "installed_plugins.json não foi escrito"
+fi
+echo
+
 # ══ 4b. OpenCode no formato V2 ════════════════════════════════════════════
 echo "4b. OpenCode gravado no formato do V2 (v2.x)"
 python3 -c '

@@ -125,10 +125,28 @@ Dois marketplaces oficiais da Anthropic no GitHub, Apache 2.0 — os mesmos que
 alimentam o Claude real:
 
 - `anthropics/skills` → docx, pdf, pptx, xlsx, skill-creator
-- `anthropics/claude-code` → code-review, commit-commands, hookify
+- `anthropics/claude-plugins-official` → code-review, commit-commands, hookify,
+  feature-dev, plugin-dev, pr-review-toolkit e outros comandos/agentes
 
-Aparecem em **Customize → Plugins → Organization**. O `ref` fica vazio para
-rastrear o branch padrão: sempre a versão mais recente, sem valor que envelhece.
+Aparecem em **Customize → Plugins**. O `ref` fica vazio para rastrear o branch
+padrão: sempre a versão mais recente, sem valor que envelhece.
+
+Declarar o marketplace só clona o catálogo. Um plugin só existe para o app
+depois de dois registros, que nenhuma configuração cria por fora da interface:
+
+| Arquivo | Papel |
+|---|---|
+| `cowork_plugins/installed_plugins.json` | o que está instalado, com `scope: "user"` e `installPath` dentro do marketplace |
+| `cowork_settings.json` | quais desses estão ligados (`enabledPlugins`) |
+
+Sem eles o log diz `0 enabled local plugins (0 installed)` e a lista fica
+vazia, mesmo com os dois marketplaces sincronizados. O instalador grava os dois.
+
+Do `claude-plugins-official` só entram os plugins cujo `source` é caminho
+relativo (54 dos 317). Os outros 263 usam `git-subdir`/`url` — plugins de
+terceiros hospedados em outros repositórios — e o app os descarta de propósito
+com `external-source plugin(s) excluded from host install`. Não é defeito de
+configuração: o host não baixa código de terceiros sem o dono do marketplace.
 
 ### O que não é possível
 
