@@ -915,6 +915,7 @@ remover_claude_desktop() {
     [ -n "$id" ] && rm -f "$lib/$id.json"
     rm -f "$lib/_meta.json"' _ "$lib"
   passo "desinstalar os plugins instalados" cd_plugins_remover
+  passo "remover o perfil de configuração gerenciada" cd_politica_remover
   [ -f "$(pasta_3p)/claude_desktop_config.json" ] && passo "deploymentMode = 1p" json_op "$(pasta_3p)/claude_desktop_config.json" merge '{"deploymentMode":"1p"}'
   passo "Reiniciar o Claude (se estiver aberto)" cd_reiniciar
   true
@@ -924,6 +925,7 @@ aplicar_claude_desktop() {
   passo "Configuração guiada (modelos + atalhos) em Claude-3p/configLibrary" cd_escrever
   passo "deploymentMode = 3p" cd_modo
   passo "Modo desenvolvedor (allowDevTools)" cd_devtools
+  passo "Perfil de configuração gerenciada (canal oficial)" cd_politica
   passo "Marketplaces oficiais e plugins instalados" cd_plugins
   passo "Reiniciar o Claude (se estiver aberto)" cd_reiniciar
 }

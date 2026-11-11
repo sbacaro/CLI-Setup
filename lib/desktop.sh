@@ -131,6 +131,149 @@ org_plugins_dir() {
   fi
 }
 
+# ── Perfil de configuração gerenciada (MDM) ─────────────────────────────────
+# A Anthropic publica dois templates do mesmo esquema, para os dois canais de
+# política do sistema:
+#   Windows: Claude.admx + Claude.adml → registro SOFTWARE\Policies\Claude
+#   macOS:   com.anthropic.claudefordesktop.plist (formato pfm_/MDM)
+# Verifiquei que os dois expõem exatamente as mesmas 157 chaves.
+#
+# No macOS o app lê, a cada abertura, por addon nativo:
+#   /Library/Managed Preferences/com.anthropic.claudefordesktop.plist      (máquina)
+#   /Library/Managed Preferences/<usuário>/com.anthropic.claudefordesktop.plist
+#
+# Por que este canal e não o configLibrary: é o caminho documentado, tem
+# precedência sobre a configuração local e sobrevive a atualização do app. O
+# configLibrary é formato interno — descoberto lendo o asar, sem compromisso de
+# estabilidade.
+#
+# Valores compostos vão como string com JSON dentro: o template os declara
+# type=string e o app faz JSON.parse (função ZFe no bundle), então o mesmo JSON
+# que já montamos serve. Conferido no binário.
+
+# desktop_managed_json → o documento que vai dentro do plist, em JSON.
+# Chama cd_config_json_completo e remove o que não pertence ao canal gerenciado.
+#
+# Implementado em Python de propósito: o plist é gravado por Python (plistlib),
+# então o filtro não deve depender de qual JSON_TOOL a máquina escolheu. Com
+# node -e fixo, o backend python3 quebrava ao gerar o perfil.
+desktop_managed_json() {
+  local cfg
+  cfg=$(cd_config_json_completo) || return 1
+  case "$cfg" in *'"inferenceModels"'*) ;; *) return 1;; esac
+  CLI_CFG="$cfg" python3 - <<'PY'
+import json,os,sys
+d=json.loads(os.environ["CLI_CFG"])
+# desktopHome substitui as duas chaves de aba, que estão depreciadas no app.
+d.pop("chatTabEnabled",None); d.pop("coworkTabEnabled",None)
+d.setdefault("desktopHome","standard")
+# Só as chaves que o template da Anthropic declara.
+permitidas={
+ "inferenceProvider","inferenceCredentialKind","inferenceGatewayBaseUrl",
+ "inferenceGatewayApiKey","inferenceGatewayAuthScheme","inferenceCustomHeaders",
+ "inferenceSessionLifetimeSec","inferenceStreamIdleTimeoutSec","inferenceModels",
+ "modelDiscoveryEnabled","modelCatalogEnabled","modelPrefer1mContext",
+ "allowedPluginMarketplaces","managedMcpServers","deploymentMode",
+ "coworkEgressAllowedHosts","disableBundledSkills","skillCreationEnabled",
+ "skillScanningEnabled","userPluginMarketplacesEnabled","userPluginUploadsEnabled",
+ "isClaudeCodeForDesktopEnabled","isLocalDevMcpEnabled",
+ "mcpPersistentAlwaysAllowEnabled","projectsEnabled","scheduledTasksEnabled",
+ "keepAwakeEnabled","builtinBrowserEnabled","quickEntryScreenshotsEnabled",
+ "quickEntryFileSharingEnabled","autoModeEnabled","desktopHome",
+ "disableDeploymentModeChooser","allowedWorkspaceFolders",
+}
+out={k:v for k,v in d.items() if k in permitidas}
+sys.stdout.write(json.dumps(out,ensure_ascii=False))
+PY
+}
+
+# desktop_plist_gerar → imprime o perfil .plist completo (XML) no stdout.
+# Estrutura conforme o template: cabeçalho Payload* + uma chave por política.
+#
+# Tipos seguem o template, e isso importa: inferenceModels, managedMcpServers,
+# allowedPluginMarketplaces e coworkEgressAllowedHosts são declarados
+# type=string nele. Vão como JSON em texto, não como estrutura nativa. O app lê
+# o plist por addon nativo (readPlistValue), que devolve o tipo gravado, e a
+# conversão (CVe/ZFe) só faz JSON.parse quando o schema não é string — para
+# essas chaves o texto é lido cru e parseado depois. Gravar array aqui
+# quebraria o contrato do template.
+PLIST_TEXTO_JSON="inferenceModels managedMcpServers allowedPluginMarketplaces coworkEgressAllowedHosts inferenceCustomHeaders"
+desktop_plist_gerar() {
+  local json uuid
+  json=$(desktop_managed_json) || return 1
+  uuid=$(uuidgen 2>/dev/null | tr 'A-Z' 'a-z')
+  [ -n "$uuid" ] || uuid="00000000-0000-4000-8000-000000000000"
+  DESKTOP_MANAGED_JSON="$json" PLIST_UUID="$uuid" PLIST_TEXTO_JSON="$PLIST_TEXTO_JSON" python3 - <<'PY'
+import json,os,plistlib,sys
+dados=json.loads(os.environ["DESKTOP_MANAGED_JSON"])
+como_texto={k for k in os.environ.get("PLIST_TEXTO_JSON","").split() if k}
+
+payload={
+    "PayloadType": "com.anthropic.claudefordesktop",
+    "PayloadIdentifier": "com.anthropic.claudefordesktop",
+    "PayloadUUID": os.environ["PLIST_UUID"],
+    "PayloadVersion": 1,
+    "PayloadDisplayName": "Claude",
+    "PayloadDescription": "Configuração do Claude Desktop para o gateway",
+    "PayloadOrganization": "Kodeo",
+}
+for k,v in dados.items():
+    # As chaves que o template declara como string levam JSON serializado.
+    if k in como_texto and not isinstance(v,str):
+        v=json.dumps(v,ensure_ascii=False,separators=(",",":"))
+    payload[k]=v
+
+sys.stdout.buffer.write(plistlib.dumps(payload, fmt=plistlib.FMT_XML, sort_keys=False))
+PY
+}
+
+# cd_politica → grava o perfil gerenciado. Precisa de root.
+# Devolve 0 quando aplica, e 0 também quando só deixa o arquivo pronto: faltar
+# privilégio não é defeito do que foi gerado, e o instalador não deve marcar
+# falha por isso. A mensagem diz o comando exato para o usuário concluir.
+cd_politica() {
+  local alvo="/Library/Managed Preferences/com.anthropic.claudefordesktop.plist"
+  local tmp; tmp="${TMPDIR:-/tmp}/claude-managed.$$.plist"
+  desktop_plist_gerar >"$tmp" || { echo "falha ao gerar o perfil"; return 1; }
+  plutil -lint "$tmp" >/dev/null 2>&1 || { echo "perfil inválido"; rm -f "$tmp"; return 1; }
+
+  if [ "$(id -u)" -eq 0 ]; then
+    mkdir -p "/Library/Managed Preferences"
+    ( umask 022; cat "$tmp" >"$alvo" ) && chown root:wheel "$alvo" && chmod 644 "$alvo"
+    local rc=$?
+    rm -f "$tmp"
+    [ $rc -eq 0 ] && { echo "perfil gravado em $alvo"; return 0; }
+    echo "não consegui gravar em $alvo"; return 1
+  fi
+
+  # Sem root: deixa pronto e explica. O arquivo é do usuário, sem risco.
+  local destino="$HOME/.claude-desktop-kodeo.plist"
+  cp "$tmp" "$destino" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  rm -f "$tmp"
+  printf '%s\n' \
+    "perfil pronto em $destino" \
+    "para aplicar, rode com a senha do administrador:" \
+    "  sudo mkdir -p \"/Library/Managed Preferences\"" \
+    "  sudo cp \"$destino\" \"$alvo\"" \
+    "  sudo chown root:wheel \"$alvo\" && sudo chmod 644 \"$alvo\"" \
+    "depois feche e abra o Claude"
+  return 0
+}
+
+# cd_politica_remover → tira o perfil. Sem root, avisa o comando e não falha.
+cd_politica_remover() {
+  local alvo="/Library/Managed Preferences/com.anthropic.claudefordesktop.plist"
+  local pronto="$HOME/.claude-desktop-kodeo.plist"
+  rm -f "$pronto" 2>/dev/null || true
+  [ -f "$alvo" ] || return 0
+  if [ "$(id -u)" -eq 0 ]; then
+    rm -f "$alvo" && echo "perfil removido de $alvo" && return 0
+    echo "não consegui remover $alvo"; return 1
+  fi
+  printf '%s\n' "para remover, rode com a senha do administrador:" "  sudo rm -f \"$alvo\""
+  return 0
+}
+
 # ── Plugins: instalação efetiva ─────────────────────────────────────────────
 # Declarar o marketplace em allowedPluginMarketplaces só o clona. Um plugin só
 # aparece na interface quando existe o registro de instalação: uma entrada em

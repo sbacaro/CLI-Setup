@@ -74,8 +74,11 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
   }
   // Capabilities: chaves reais do app. O Code é ligado por
   // isClaudeCodeForDesktopEnabled, não por um "codeTabEnabled" inventado.
-  cfg.chatTabEnabled=true;
-  cfg.coworkTabEnabled=true;
+  // As abas não são mais chaves próprias: "desktopHome" as governa desde
+  // 1.52386.0, e chatTabEnabled/coworkTabEnabled estão marcadas como
+  // deprecated no próprio app. "standard" liga chat, análise de arquivo e
+  // cowork — o equivalente ao que as duas chaves antigas pediam.
+  cfg.desktopHome="standard";
   cfg.isClaudeCodeForDesktopEnabled=true;
   cfg.autoModeEnabled=true;
   cfg.skillCreationEnabled=true;
@@ -186,7 +189,7 @@ if padrao:
         prim["anthropicFamilyTier"]=td(padrao); prim["isFamilyDefault"]=True
     if prim.get("supports1m") is None and (nome.get(padrao,{}).get("supports1m")): prim["supports1m"]=True
     cfg["inferenceModels"]=[prim]+[o for o in modelos if o["name"]!=padrao]
-cfg.update({"chatTabEnabled":True,"coworkTabEnabled":True,
+cfg.update({"desktopHome":"standard",
             "isClaudeCodeForDesktopEnabled":True,"autoModeEnabled":True,
             "skillCreationEnabled":True,"skillScanningEnabled":True,
             "disableBundledSkills":False,"userPluginMarketplacesEnabled":True,

@@ -195,6 +195,52 @@ grep -qs "grok-4.7" "$CC_CFG" && falha "Sonnet foi redirecionado para grok (bug 
   || ok "Sonnet não foi redirecionado para grok"
 echo
 
+# ══ 3c. Perfil de configuração gerenciada ════════════════════════════════
+# O canal oficial é /Library/Managed Preferences e exige root, então o teste
+# valida o que é verificável sem privilégio: o documento gerado respeita os
+# tipos que o template da Anthropic declara. As chaves compostas vão como JSON
+# em texto (type=string no template); gravá-las como array quebra o contrato.
+echo "3c. Perfil gerenciado respeita os tipos do template"
+_plist="$TESTE/kodeo.plist"
+export JSON_TOOL
+bash -c '
+  . "$1/lib/json.sh"; . "$1/lib/catalogo.sh"; . "$1/lib/geradores.sh"; . "$1/lib/desktop.sh"
+  export CATALOGO_JSON="{\"data\":[{\"id\":\"claude-opus-5.5\",\"display_name\":\"Opus 5.5\",\"context_length\":1000000}]}"
+  mk=$(desktop_marketplaces_json 1 1); ml=$(desktop_mcp_local "")
+  cd_config_json_completo() { printf "%s" "$CATALOGO_JSON" | CAT_BASE="https://x" CAT_CHAVE="ck_t" CAT_OPUS="claude-opus-5.5" CAT_MARKETPLACES="$mk" CAT_MCP_LOCAL="$ml" catalogo_gerar_claude; }
+  desktop_plist_gerar
+' _ "$REPO" >"$_plist" 2>/dev/null
+
+if plutil -lint "$_plist" >/dev/null 2>&1; then
+  ok "perfil é um plist válido"
+  _res=$(python3 - "$_plist" <<'PY'
+import plistlib,sys
+d=plistlib.load(open(sys.argv[1],"rb"))
+f=[]
+# o template declara type=string para as compostas
+for k in ("inferenceModels","allowedPluginMarketplaces","coworkEgressAllowedHosts"):
+    if k in d and not isinstance(d[k],str): f.append(f"{k} não é string (template exige)")
+# as booleanas do template
+for k in ("skillScanningEnabled","projectsEnabled","builtinBrowserEnabled"):
+    if k in d and not isinstance(d[k],bool): f.append(f"{k} não é boolean")
+# desktopHome substitui as chaves depreciadas de aba
+if d.get("desktopHome")!="standard": f.append("desktopHome != standard")
+for k in ("chatTabEnabled","coworkTabEnabled"):
+    if k in d: f.append(f"{k} ainda presente (depreciada)")
+if not d.get("inferenceGatewayBaseUrl"): f.append("sem baseUrl")
+if "PayloadType" not in d: f.append("sem PayloadType")
+print("OK" if not f else "FALHA: "+"; ".join(f))
+PY
+)
+  case "$_res" in
+    OK) ok "tipos conferem: compostas em texto, booleanas em bool, desktopHome" ;;
+    *) falha "$_res" ;;
+  esac
+else
+  falha "perfil gerado não é um plist válido"
+fi
+echo
+
 # ══ 3b. MCP local não depende de pasta ════════════════════════════════════
 # A tela prometia "Sem pastas, só Memory e Sequential Thinking entram" e a
 # função devolvia [] antes de chegar neles: quem só dava Enter ficava sem MCP

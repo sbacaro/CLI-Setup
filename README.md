@@ -148,6 +148,42 @@ terceiros hospedados em outros repositórios — e o app os descarta de propósi
 com `external-source plugin(s) excluded from host install`. Não é defeito de
 configuração: o host não baixa código de terceiros sem o dono do marketplace.
 
+### Configuração: canal oficial vs. local
+
+A Anthropic publica dois templates do **mesmo** esquema, um por canal de
+política do sistema — verifiquei que expõem exatamente as mesmas 157 chaves:
+
+| Canal | Onde o app lê | Template |
+|---|---|---|
+| macOS (MDM) | `/Library/Managed Preferences/com.anthropic.claudefordesktop.plist` (máquina) e `…/<usuário>/…` | `.plist` com chaves `pfm_` |
+| Windows (GPO) | registro `SOFTWARE\Policies\Claude` | `Claude.admx` + `Claude.adml` |
+
+O instalador gera **os dois**: grava o perfil gerenciado quando tem root, e
+mantém o `configLibrary` com o que sobra. O perfil tem precedência sobre a
+configuração local e sobrevive a atualização do app; o `configLibrary` é
+formato interno, descoberto lendo o asar, sem compromisso de estabilidade.
+
+Duas sutilezas que custaram para aparecer:
+
+- **Campos compostos são `type=string` no template.** `inferenceModels`,
+  `managedMcpServers`, `allowedPluginMarketplaces` e `coworkEgressAllowedHosts`
+  vão como **JSON em texto**, não como array/dict. O app lê o plist por addon
+  nativo e devolve o tipo gravado; a conversão só faz `JSON.parse` quando o
+  schema não é string. Gravar array quebra o contrato.
+- **`chatTabEnabled` e `coworkTabEnabled` estão depreciadas.** Quem manda é
+  `desktopHome`: `standard` liga chat, análise de arquivo e cowork. As antigas
+  continuam sendo lidas por versões velhas, mas o par novo é o correto.
+
+Aplicar o perfil exige privilégio:
+
+```sh
+sudo mkdir -p "/Library/Managed Preferences"
+sudo cp ~/.claude-desktop-kodeo.plist \
+  "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist"
+sudo chown root:wheel "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist"
+sudo chmod 644 "/Library/Managed Preferences/com.anthropic.claudefordesktop.plist"
+```
+
 ### O que não é possível
 
 Conectores marcados **"Made by Anthropic"** são hospedados na infraestrutura da
