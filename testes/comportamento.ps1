@@ -287,6 +287,27 @@ CODEX_CLI_PATH = "/caminho/codex"
     checa 'remoto usa OAuth' ($mr[0].oauth -eq $true)
     checa 'seleção vazia devolve nada' (@(Get-McpRemoto -Selecao '').Count -eq 0)
     checa 'asana usa transporte sse' ((Get-McpRemoto -Selecao 'asana')[0].transport -eq 'sse')
+
+    # A tela prometia "Sem pastas, só Memory e Sequential Thinking entram" e a
+    # função devolvia @() antes de chegar neles: quem só dava Enter ficava sem
+    # MCP nenhum. Só vale checar se os pacotes estão no cache do npm, senão a
+    # asserção vira "tudo bem, nada entrou" e não prova nada.
+    $semPasta = @(Get-McpLocal -Diretorios '')
+    $nomesSem = @($semPasta | ForEach-Object { $_.name })
+    if ($nomesSem.Count -eq 0) {
+        checa 'sem pastas: nenhum MCP ainda no cache (nada a provar aqui)' $true
+    } else {
+        checa 'sem pastas não inclui Filesystem' (-not ($nomesSem -contains 'Filesystem'))
+        checa "sem pastas entram $($nomesSem -join ', ')" `
+            (($nomesSem -contains 'Memory') -and ($nomesSem -contains 'Sequential Thinking'))
+    }
+    $comPasta = @(Get-McpLocal -Diretorios 'C:/docs')
+    $fs = @($comPasta | Where-Object { $_.name -eq 'Filesystem' })
+    if ($fs.Count -eq 1) {
+        checa 'com pasta o Filesystem recebe a pasta' (@($fs[0].args) -contains 'C:/docs')
+    } else {
+        checa 'com pasta: Filesystem ainda não está no cache (nada a provar aqui)' $true
+    }
     Write-Host ''
 
     # ══ resumo ══════════════════════════════════════════════════════════

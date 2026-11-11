@@ -132,25 +132,36 @@ org_plugins_dir() {
 # Só incluímos o servidor cujo pacote baixou de verdade. Sem isso o app
 # mostraria erro de conexão em vez de funcionar.
 
-# npx_preaquecer PACOTE → 0 se o pacote está no cache do npm
+# npx_preaquecer PACOTE [COMANDO] → 0 se o pacote está utilizável
+# Antes esta função respondia "sim" só porque _npx existia, o que é verdade para
+# qualquer pacote já alguma vez corrido — até para um nome inexistente. Quem
+# decide é o binário: se COMANDO é dado, ele precisa resolver em disco.
 npx_preaquecer() {
-  local pacote="$1"
+  local pacote="$1" cmd="${2:-}"
   command -v npx >/dev/null 2>&1 || return 1
+  if [ -n "$cmd" ] && npx_binario "$pacote" "$cmd" >/dev/null 2>&1; then return 0; fi
   npm ls -g --depth=0 "$pacote" >/dev/null 2>&1 && return 0
   # --help sai não-zero em alguns pacotes; o que interessa é o download.
   timeout 120 npx -y "$pacote" --help >/dev/null 2>&1 || true
+  if [ -n "$cmd" ]; then
+    npx_binario "$pacote" "$cmd" >/dev/null 2>&1 && return 0
+    return 1
+  fi
   npm cache ls "$pacote" 2>/dev/null | grep -q . && return 0
-  # fallback: se o npx rodou, o pacote está em _npx
   ls "$HOME/.npm/_npx" >/dev/null 2>&1 && return 0
   return 1
 }
 
 # npx_caminho PACOTE COMANDO → caminho absoluto do binário dentro do cache do npm.
 # Prefere o binário de _npx/<hash>/node_modules/.bin/.
+# Confere que o binário veio do pacote pedido: o cache guarda todos os pacotes
+# que já passaram por npx, e um .bin/ de outro pacote poderia ter o mesmo nome.
 npx_binario() {
-  local pacote="$1" bin="$2" p
+  local pacote="$1" bin="$2" p d
   for p in "$HOME/.npm/_npx"/*/node_modules/.bin/"$bin"; do
-    [ -x "$p" ] && { printf '%s' "$p"; return 0; }
+    [ -x "$p" ] || continue
+    d=$(dirname "$(dirname "$p")")            # …/node_modules
+    [ -d "$d/$pacote" ] && { printf '%s' "$p"; return 0; }
   done
   # global
   command -v "$bin" >/dev/null 2>&1 && { command -v "$bin"; return 0; }
@@ -159,12 +170,14 @@ npx_binario() {
 
 # desktop_mcp_local DIRETORIOS → array JSON de servidores stdio locais reais.
 # Só entram os que resolvem para um binário absoluto existente.
-desktop_mcp_local() { # DIRETORIOS (separados por vírgula; vazio = não inclui)
+# Sem pastas, o Filesystem não entra (não teria o que servir), mas Memory e
+# Sequential Thinking continuam: eles não dependem de pasta alguma. Era isso que
+# a tela prometia e o código não fazia — a tela dizia "Sem pastas, só Memory e
+# Sequential Thinking entram" e a função devolvia [] antes de chegar neles.
+desktop_mcp_local() { # DIRETORIOS (separados por vírgula; vazio = só Memory/Sequential)
   local dirs="${1:-}" out="" sep="" bin
 
-  [ -z "$dirs" ] && { printf '[]'; return 0; }
-
-  if npx_preaquecer "@modelcontextprotocol/server-filesystem"; then
+  if [ -n "$dirs" ] && npx_preaquecer "@modelcontextprotocol/server-filesystem" mcp-server-filesystem; then
     bin=$(npx_binario "@modelcontextprotocol/server-filesystem" mcp-server-filesystem)
     if [ -n "$bin" ]; then
       local argsjson="" d
@@ -177,12 +190,12 @@ desktop_mcp_local() { # DIRETORIOS (separados por vírgula; vazio = não inclui)
     fi
   fi
 
-  if npx_preaquecer "@modelcontextprotocol/server-memory"; then
+  if npx_preaquecer "@modelcontextprotocol/server-memory" mcp-server-memory; then
     bin=$(npx_binario "@modelcontextprotocol/server-memory" mcp-server-memory)
     [ -n "$bin" ] && { out="$out$sep{\"name\":\"Memory\",\"transport\":\"stdio\",\"command\":\"$bin\",\"args\":[]}"; sep=","; }
   fi
 
-  if npx_preaquecer "@modelcontextprotocol/server-sequential-thinking"; then
+  if npx_preaquecer "@modelcontextprotocol/server-sequential-thinking" mcp-server-sequential-thinking; then
     bin=$(npx_binario "@modelcontextprotocol/server-sequential-thinking" mcp-server-sequential-thinking)
     [ -n "$bin" ] && { out="$out$sep{\"name\":\"Sequential Thinking\",\"transport\":\"stdio\",\"command\":\"$bin\",\"args\":[]}"; sep=","; }
   fi

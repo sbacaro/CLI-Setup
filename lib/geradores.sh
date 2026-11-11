@@ -411,8 +411,7 @@ let t="";process.stdin.on("data",c=>t+=c).on("end",()=>{
 import json,os,re,sys
 padrao=os.environ.get("CAT_PADRAO","")
 instrucoes=os.environ.get("CAT_INSTRUCOES","")
-plano=[s.strip() for s in os.environ.get("CAT_PLANO_IDS","").split("
-") if s.strip()]
+plano=[s.strip() for s in os.environ.get("CAT_PLANO_IDS","").split("\n") if s.strip()]
 try: d=json.load(sys.stdin)
 except Exception: d={}
 ms=d.get("models") if isinstance(d.get("models"),list) else (d.get("data") if isinstance(d.get("data"),list) else [])

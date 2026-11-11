@@ -195,6 +195,43 @@ grep -qs "grok-4.7" "$CC_CFG" && falha "Sonnet foi redirecionado para grok (bug 
   || ok "Sonnet não foi redirecionado para grok"
 echo
 
+# ══ 3b. MCP local não depende de pasta ════════════════════════════════════
+# A tela prometia "Sem pastas, só Memory e Sequential Thinking entram" e a
+# função devolvia [] antes de chegar neles: quem só dava Enter ficava sem MCP
+# nenhum. Os três pacotes precisam estar no cache do npm, senão a checagem vira
+# um "tudo bem, nada entrou" e não prova nada.
+echo "3b. MCP local entra mesmo sem pastas do Filesystem"
+_ml_vazio=$(desktop_mcp_local "" 2>/dev/null)
+_python_mcp='
+import json,sys
+nomes=[m.get("name") for m in json.load(sys.stdin)]
+falta=[n for n in ("Memory","Sequential Thinking") if n not in nomes]
+print("FALTA:"+",".join(falta) if falta else "OK:"+",".join(nomes))
+'
+_res=$(printf '%s' "$_ml_vazio" | python3 -c "$_python_mcp" 2>/dev/null || echo "ERRO")
+case "$_res" in
+  OK:*) ok "sem pastas entram ${_res#OK:}" ;;
+  FALTA:*) falha "sem pastas faltou ${_res#FALTA:} (bug do return antecipado)" ;;
+  *) falha "JSON inválido do MCP local: ${_ml_vazio:0:60}" ;;
+esac
+
+# Com pasta, o Filesystem entra e recebe a pasta nos args.
+_ml_dir=$(desktop_mcp_local "$TESTE/docs" 2>/dev/null)
+_res=$(printf '%s' "$_ml_dir" | python3 -c '
+import json,sys
+ms=json.load(sys.stdin); alvo=sys.argv[1]
+fs=[m for m in ms if m.get("name")=="Filesystem"]
+if not fs: print("FALTA:Filesystem")
+elif alvo not in (fs[0].get("args") or []): print("FALTA:pasta nos args")
+else: print("OK")
+' "$TESTE/docs" 2>/dev/null || echo "ERRO")
+case "$_res" in
+  OK) ok "com pasta o Filesystem entra e recebe a pasta" ;;
+  FALTA:*) falha "com pasta: ${_res#FALTA:}" ;;
+  *) falha "JSON inválido com pasta" ;;
+esac
+echo
+
 # ══ 4. idempotência ═══════════════════════════════════════════════════════
 echo "4. Rodar duas vezes não duplica"
 antes=$(grep -c ">>> kodeo >>>" "$HOME/.zshrc" 2>/dev/null || echo 0)

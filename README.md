@@ -112,6 +112,13 @@ servem `/.well-known/oauth-protected-resource` ou
 `oauth-authorization-server`, que é o que o app exige para registrar o cliente
 e abrir o navegador. Nenhum precisa de chave.
 
+Dos locais, só o **Filesystem** depende de uma pasta liberada. Sem nenhuma
+pasta informada, ele não entra — não teria o que servir — mas **Memory** e
+**Sequential Thinking** continuam, porque não dependem de pasta alguma. Um
+servidor só é declarado quando o binário do pacote existe de fato em disco:
+declarar um comando que não resolve faz o app mostrar erro de conexão em vez de
+funcionar.
+
 ### Skills e plugins
 
 Dois marketplaces oficiais da Anthropic no GitHub, Apache 2.0 — os mesmos que
@@ -179,7 +186,7 @@ volta como estava: o `config.toml` original, o modelo anterior do OpenCode, o
 | `CLI_BUSCA_PROVEDOR` | `brave`, `tavily` ou `exa` (busca na web) |
 | `CLI_BUSCA_CHAVE` | chave do provedor de busca |
 | `CLI_GITHUB_CLIENT_ID` | clientId do seu OAuth App do GitHub |
-| `CLI_MCP_DIRS` | pastas liberadas para o Filesystem |
+| `CLI_MCP_DIRS` | pastas liberadas para o Filesystem (vazio = só Memory e Sequential) |
 | `CLI_MCP_REMOTOS` | `linear,notion,sentry,atlassian,stripe,asana` |
 | `CLI_EGRESS` | `minimo`, `padrao` ou `completo` |
 | `CLI_LINHAS` / `CLI_COLS` | força as dimensões do terminal |

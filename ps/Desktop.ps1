@@ -163,11 +163,18 @@ function Get-NpxComando {
     return $null
 }
 
-# Aquece o pacote no cache do npm. Devolve $true se o cache tem o pacote.
+# Aquece o pacote no cache do npm. Devolve $true se o pacote está utilizável.
+# Antes respondia "sim" só porque a pasta _npx existia — verdade para qualquer
+# pacote já alguma vez corrido, até um nome inexistente. Quem decide é o
+# binário: se $Comando é dado, ele precisa resolver em disco.
 function Invoke-NpxAquecer {
-    param([Parameter(Mandatory)][string]$Pacote)
+    param(
+        [Parameter(Mandatory)][string]$Pacote,
+        [string]$Comando = ''
+    )
     $npx = Get-NpxComando
     if (-not $npx) { return $false }
+    if ($Comando -and (Get-NpxBinario -Pacote $Pacote -Comando $Comando)) { return $true }
     # Já instalado globalmente? Então não precisa baixar.
     $npm = Get-Command npm -ErrorAction SilentlyContinue
     if ($npm) {
@@ -178,12 +185,15 @@ function Invoke-NpxAquecer {
     try {
         $null = & $npx -y $Pacote --help 2>$null
     } catch {}
+    if ($Comando) { return [bool](Get-NpxBinario -Pacote $Pacote -Comando $Comando) }
     $npxDir = Join-Caminho -Base (Get-NpmCacheDir) -Parte '_npx'
     return (Test-Path -LiteralPath $npxDir)
 }
 
 # Caminho absoluto do binário dentro do cache do npm.
 # No Windows o executável real é o .cmd dentro de node_modules/.bin.
+# Confere que o binário veio do pacote pedido: o cache guarda todos os pacotes
+# que já passaram por npx, e um .bin/ de outro pacote poderia ter o mesmo nome.
 function Get-NpxBinario {
     param(
         [Parameter(Mandatory)][string]$Pacote,
@@ -193,6 +203,8 @@ function Get-NpxBinario {
     if (Test-Path -LiteralPath $npxDir) {
         $exts = if (Test-Windows) { @('.cmd', '.exe', '.ps1', '') } else { @('') }
         foreach ($d in (Get-ChildItem -LiteralPath $npxDir -Directory -ErrorAction SilentlyContinue)) {
+            $pkgDir = Join-Caminho -Base $d.FullName -Parte "node_modules/$Pacote"
+            if (-not (Test-Path -LiteralPath $pkgDir)) { continue }
             foreach ($ext in $exts) {
                 $p = Join-Caminho -Base $d.FullName -Parte "node_modules/.bin/$Comando$ext"
                 if (Test-Path -LiteralPath $p) { return $p }
@@ -208,15 +220,17 @@ function Get-NpxBinario {
 # Servidores stdio locais reais. Só entram os que resolvem para um binário
 # absoluto existente — declarar um comando que não existe faz o app mostrar
 # erro de conexão em vez de funcionar.
+# Sem pastas, o Filesystem não entra (não teria o que servir), mas Memory e
+# Sequential Thinking continuam: eles não dependem de pasta alguma. Era isso que
+# a tela prometia e o código não fazia — devolvia @() antes de chegar neles.
 function Get-McpLocal {
     param([string]$Diretorios = '')
 
     $dirs = @($Diretorios -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-    if ($dirs.Count -eq 0) { return @() }
 
     $out = @()
 
-    if (Invoke-NpxAquecer -Pacote '@modelcontextprotocol/server-filesystem') {
+    if ($dirs.Count -gt 0 -and (Invoke-NpxAquecer -Pacote '@modelcontextprotocol/server-filesystem' -Comando 'mcp-server-filesystem')) {
         $bin = Get-NpxBinario -Pacote '@modelcontextprotocol/server-filesystem' -Comando 'mcp-server-filesystem'
         if ($bin) {
             $args_ = @($dirs)
@@ -230,7 +244,7 @@ function Get-McpLocal {
         }
     }
 
-    if (Invoke-NpxAquecer -Pacote '@modelcontextprotocol/server-memory') {
+    if (Invoke-NpxAquecer -Pacote '@modelcontextprotocol/server-memory' -Comando 'mcp-server-memory') {
         $bin = Get-NpxBinario -Pacote '@modelcontextprotocol/server-memory' -Comando 'mcp-server-memory'
         if ($bin) {
             $out += ,([ordered]@{
@@ -242,7 +256,7 @@ function Get-McpLocal {
         }
     }
 
-    if (Invoke-NpxAquecer -Pacote '@modelcontextprotocol/server-sequential-thinking') {
+    if (Invoke-NpxAquecer -Pacote '@modelcontextprotocol/server-sequential-thinking' -Comando 'mcp-server-sequential-thinking') {
         $bin = Get-NpxBinario -Pacote '@modelcontextprotocol/server-sequential-thinking' -Comando 'mcp-server-sequential-thinking'
         if ($bin) {
             $out += ,([ordered]@{
